@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Data — never commit raw handbooks, OCR outputs, or uploaded files
+data/raw/
+data/output/
+data/uploads/
+images/
+*.pdf
+
+# Logs
+*.log
+logs/
+
+# Node (for later, web/ folder)
+node_modules/
+.next/
+out/
+
+# Secrets
+*.pem
+*.key
+
+.gitignore
