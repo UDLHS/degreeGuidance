@@ -17,6 +17,10 @@ from alembic import context
 from core.config import settings
 from core.db import Base
 
+# Import all models so Base.metadata is populated.
+# Alembic uses this for autogenerate and for sanity-checking your migrations.
+from core import models  # noqa: F401
+
 # Alembic Config object
 config = context.config
 
