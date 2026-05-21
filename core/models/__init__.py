@@ -1,7 +1,6 @@
 """Model exports.
 
 Every model in the project should be importable from `core.models`.
-This is what makes Alembic's autogenerate see them via Base.metadata.
 """
 
 from core.models.reference import (
@@ -14,6 +13,8 @@ from core.models.reference import (
     Subject,
     University,
 )
+from core.models.course import Course
+from core.models.course_eligibility import CourseStreamEligibility, CourseAlias
 
 __all__ = [
     "District",
@@ -24,4 +25,7 @@ __all__ = [
     "StreamSubject",
     "Subject",
     "University",
+    "Course",
+    "CourseStreamEligibility",
+    "CourseAlias",
 ]

@@ -28,9 +28,9 @@
 006F,006,RUH,Biological Science (University of Ruhuna)
 006H,006,EUSL,"Biological Science (Eastern University, Sri Lanka)"
 006J,006,SEUSL,Biological Science (South Eastern University of Sri Lanka)
-007K,007,RUSL,Applied Sciences (biological Sc.) (Rajarata University of Sri Lanka)
-007L,007,SUSL,Applied Sciences (biological Sc.) (Sabaragamuwa University of Sri Lanka)
-007R,007,UOV,"Applied Sciences (biological Sc.) (University of Vavuniya, Sri Lanka)"
+007K,007,RUSL,Applied Sciences (Biological Sc.) (Rajarata University of Sri Lanka)
+007L,007,SUSL,Applied Sciences (Biological Sc.) (Sabaragamuwa University of Sri Lanka)
+007R,007,UOV,"Applied Sciences (Biological Sc.) (University of Vavuniya, Sri Lanka)"
 008B,008,PDN,Engineering (University of Peradeniya)
 008C,008,SJP,Engineering (University of Sri Jayewardenepura)
 008E,008,UJA,Engineering (University of Jaffna)
@@ -40,7 +40,7 @@
 009G,009,MRT,Engineering (EM) (University of Moratuwa)
 010G,010,MRT,Engineering (TM) (University of Moratuwa)
 011G,011,MRT,Quantity Surveying (University of Moratuwa)
-012C,012,SJP,Uni - Code Uni - Code  Computer Science (University of Sri Jayewardenepura)
+012C,012,SJP,Computer Science (University of Sri Jayewardenepura)
 012D,012,KLN,Computer Science (University of Kelaniya)
 012E,012,UJA,Computer Science (University of Jaffna)
 012F,012,RUH,Computer Science (University of Ruhuna)
@@ -55,11 +55,11 @@
 013H,013,EUSL,"Physical Science (Eastern University, Sri Lanka)"
 013J,013,SEUSL,Physical Science (South Eastern University of Sri Lanka)
 014L,014,SUSL,Surveying Science (Sabaragamuwa University of Sri Lanka)
-015K,015,RUSL,Applied Sciences (physical Sc.) (Rajarata University of Sri Lanka)
-015L,015,SUSL,Applied Sciences (physical Sc.) (Sabaragamuwa University of Sri Lanka)
-015M,015,WUSL,Applied Sciences (physical Sc.) (Wayamba University of Sri Lanka)
-015R,015,UOV,"Applied Sciences (physical Sc.) (University of Vavuniya, Sri Lanka)"
-015W,015,TRINCO,"Applied Sciences (physical Sc.) (Trincomalee Campus, Eastern University, Sri Lanka)"
+015K,015,RUSL,Applied Sciences (Physical Sc.) (Rajarata University of Sri Lanka)
+015L,015,SUSL,Applied Sciences (Physical Sc.) (Sabaragamuwa University of Sri Lanka)
+015M,015,WUSL,Applied Sciences (Physical Sc.) (Wayamba University of Sri Lanka)
+015R,015,UOV,"Applied Sciences (Physical Sc.) (University of Vavuniya, Sri Lanka)"
+015W,015,TRINCO,"Applied Sciences (Physical Sc.) (Trincomalee Campus, Eastern University, Sri Lanka)"
 016A,016,CMB,Management (University of Colombo)
 016B,016,PDN,Management (University of Peradeniya)
 016C,016,SJP,Management (University of Sri Jayewardenepura)
@@ -88,7 +88,7 @@
 019K,019,RUSL,Arts (Rajarata University of Sri Lanka)
 020S,020,SP,"Arts (SP) - Mass Media (Sripalee Campus, University of Colombo)"
 041S,041,SP,"Arts (SP) - Performing Arts (Sripalee Campus, University of Colombo)"
-021L,021,SUSL,Arts(sab) (Sabaragamuwa University of Sri Lanka)
+021L,021,SUSL,Arts (SAB) (Sabaragamuwa University of Sri Lanka)
 022W,022,TRINCO,"Management Studies (TV) (Trincomalee Campus, Eastern University, Sri Lanka)"
 022R,022,UOV,"Management Studies (TV) (University of Vavuniya, Sri Lanka)"
 023G,023,MRT,Architecture (University of Moratuwa)
@@ -119,7 +119,7 @@
 037H,037,EUSL,"Nursing (Eastern University, Sri Lanka)"
 038K,038,RUSL,Information and Communication Technology (ICT) (Rajarata University of Sri Lanka)
 038R,038,UOV,"Information and Communication Technology (ICT) (University of Vavuniya, Sri Lanka)"
-039B,039,PDN,Uni - Code  Agricultural Technology & Management (University of Peradeniya)
+039B,039,PDN,Agricultural Technology & Management (University of Peradeniya)
 050K,050,RUSL,Health Promotion (Rajarata University of Sri Lanka)
 051B,051,PDN,Pharmacy (University of Peradeniya)
 051C,051,SJP,Pharmacy (University of Sri Jayewardenepura)
@@ -156,10 +156,10 @@
 071Z,071,UVPA,Drama & Theatre (University of the Visual & Performing Arts)
 072Y,072,SVIAS,"Visual & Technological Arts (Swamy Vipulananda Institute of Aesthetic Studies, Eastern University, Sri Lanka)"
 073U,073,UWU,Export Agriculture (Uva Wellassa University of Sri Lanka)
-075U,075,UWU,Uni - Code  Industrial Information Technology (Uva Wellassa University of Sri Lanka)
+075U,075,UWU,Industrial Information Technology (Uva Wellassa University of Sri Lanka)
 076U,076,UWU,Mineral Resources and Technology (Uva Wellassa University of Sri Lanka)
 077C,077,SJP,Business Information Systems (Honours) (BIS) (University of Sri Jayewardenepura)
-079J,079,SEUSL,Management and Information Technology(seusl) (South Eastern University of Sri Lanka)
+079J,079,SEUSL,Management and Information Technology (SEUSL) (South Eastern University of Sri Lanka)
 081E,081,UJA,Physical Education (University of Jaffna)
 081L,081,SUSL,Physical Education (Sabaragamuwa University of Sri Lanka)
 082C,082,SJP,Sports Science & Management (University of Sri Jayewardenepura)
@@ -194,7 +194,7 @@
 102A,102,CMB,Engineering Technology (ET) (University of Colombo)
 102C,102,SJP,Engineering Technology(et) (University of Sri Jayewardenepura)
 102D,102,KLN,Engineering Technology (ET) (University of Kelaniya)
-102E,102,UJA,Uni - Code  Engineering Technology (ET) (University of Jaffna)
+102E,102,UJA,Engineering Technology (ET) (University of Jaffna)
 102F,102,RUH,Engineering Technology (ET) (University of Ruhuna)
 102K,102,RUSL,Engineering Technology (ET) (Rajarata University of Sri Lanka)
 102L,102,SUSL,Engineering Technology (ET) (Sabaragamuwa University of Sri Lanka)
@@ -223,14 +223,14 @@
 105C,105,SJP,Teaching English as a Second Language (TESL) (University of Sri Jayewardenepura)
 105D,105,KLN,Teaching English as a Second Language (TESL) (University of Kelaniya)
 105L,105,SUSL,Teaching English as a Second Language (TESL) (Sabaragamuwa University of Sri Lanka)
-106F,106,RUH,Marine and Freshwater Sciences (University of Ruhuna)
+106F,106,RUH,Marine and Fresh Water Sciences (University of Ruhuna)
 107L,107,SUSL,Food Business Management (Sabaragamuwa University of Sri Lanka)
-108C,108,SJP,Physical Science -ict (University of Sri Jayewardenepura)
-108D,108,KLN,Physical Science -ict (University of Kelaniya)
+108C,108,SJP,Physical Science - ICT (University of Sri Jayewardenepura)
+108D,108,KLN,Physical Science - ICT (University of Kelaniya)
 109G,109,MRT,Business Science (University of Moratuwa)
 110D,110,KLN,Financial Engineering (University of Kelaniya)
 111B,111,PDN,Geographical Information Science (University of Peradeniya)
-112B,112,PDN,Uni - Code  Social Work (University of Peradeniya)
+112B,112,PDN,Social Work (University of Peradeniya)
 112C,112,SJP,Social Work (University of Sri Jayewardenepura)
 113F,113,RUH,Financial Mathematics and Industrial Statistics (University of Ruhuna)
 114U,114,UWU,Human Resource Development (Uva Wellassa University of Sri Lanka)
@@ -247,7 +247,7 @@
 125P,125,GWUIM,"Yoga and Parapsychology (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)"
 126P,126,GWUIM,"Social Studies in Indigenous Knowledge (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)"
 127D,127,KLN,Accounting Information Systems (University of Kelaniya)
-128C,128,SJP,Arts-information Technology (University of Sri Jayewardenepura)
+128C,128,SJP,Arts - Information Technology (University of Sri Jayewardenepura)
 129C,129,SJP,Aquatic Bioresources (University of Sri Jayewardenepura)
 130C,130,SJP,Urban Bio Resources (University of Sri Jayewardenepura)
 131C,131,SJP,Financial Economics (University of Sri Jayewardenepura)

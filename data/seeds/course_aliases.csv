@@ -1,0 +1,262 @@
+﻿course_code,alias_text,source,confidence,is_verified
+001A,MEDICINE (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+001B,MEDICINE (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+001C,MEDICINE (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+001D,MEDICINE (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+001E,MEDICINE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+001F,MEDICINE (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+001G,MEDICINE (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+001H,"MEDICINE (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+001K,MEDICINE (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+001L,MEDICINE (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+001M,MEDICINE (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+001U,MEDICINE (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+002B,DENTAL SURGERY (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+002C,DENTAL SURGERY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+003B,VETERINARY SCIENCE (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+004E,AGRICULTURE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+004H,"AGRICULTURE (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+004K,AGRICULTURE (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+004L,AGRICULTURE (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+004M,AGRICULTURE (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+005M,FOOD SCIENCE & NUTRITION (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+006A,BIOLOGICAL SCIENCE (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+006B,BIOLOGICAL SCIENCE (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+006C,BIOLOGICAL SCIENCE (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+006D,BIOLOGICAL SCIENCE (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+006E,BIOLOGICAL SCIENCE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+006F,BIOLOGICAL SCIENCE (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+006H,"BIOLOGICAL SCIENCE (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+006J,BIOLOGICAL SCIENCE (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+007K,APPLIED SCIENCES (BIOLOGICAL SC.) (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+007L,APPLIED SCIENCES (BIOLOGICAL SC.) (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+007R,"APPLIED SCIENCES (BIOLOGICAL SC.) (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+008B,ENGINEERING (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+008C,ENGINEERING (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+008E,ENGINEERING (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+008F,ENGINEERING (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+008G,ENGINEERING (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+008J,ENGINEERING (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+009G,ENGINEERING (EM) (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+010G,ENGINEERING (TM) (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+011G,QUANTITY SURVEYING (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+012C,COMPUTER SCIENCE (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+012D,COMPUTER SCIENCE (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+012E,COMPUTER SCIENCE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+012F,COMPUTER SCIENCE (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+012T,COMPUTER SCIENCE (University of Colombo School of Computing),manual_seed_2024_handbook,1.00,TRUE
+012W,"COMPUTER SCIENCE (Trincomalee Campus, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+013A,PHYSICAL SCIENCE (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+013B,PHYSICAL SCIENCE (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+013C,PHYSICAL SCIENCE (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+013D,PHYSICAL SCIENCE (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+013E,PHYSICAL SCIENCE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+013F,PHYSICAL SCIENCE (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+013H,"PHYSICAL SCIENCE (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+013J,PHYSICAL SCIENCE (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+014L,SURVEYING SCIENCE (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+015K,APPLIED SCIENCES (PHYSICAL SC.) (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+015L,APPLIED SCIENCES (PHYSICAL SC.) (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+015M,APPLIED SCIENCES (PHYSICAL SC.) (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+015R,"APPLIED SCIENCES (PHYSICAL SC.) (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+015W,"APPLIED SCIENCES (PHYSICAL SC.) (Trincomalee Campus, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+016A,MANAGEMENT (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+016B,MANAGEMENT (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+016C,MANAGEMENT (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+016D,MANAGEMENT (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+016E,MANAGEMENT (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+016F,MANAGEMENT (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+016H,"MANAGEMENT (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+016J,MANAGEMENT (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+016K,MANAGEMENT (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+016L,MANAGEMENT (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+016M,MANAGEMENT (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+017C,REAL ESTATE MANAGEMENT AND VALUATION (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+018C,COMMERCE (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+018D,COMMERCE (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+018E,COMMERCE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+018H,"COMMERCE (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+018J,COMMERCE (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+019A,ARTS (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+019B,ARTS (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+019C,ARTS (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+019D,ARTS (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+019E,ARTS (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+019F,ARTS (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+019H,"ARTS (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+019J,ARTS (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+019K,ARTS (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+020S,"ARTS (SP) - MASS MEDIA (Sripalee Campus, University of Colombo)",manual_seed_2024_handbook,1.00,TRUE
+041S,"ARTS (SP) - PERFORMING ARTS (Sripalee Campus, University of Colombo)",manual_seed_2024_handbook,1.00,TRUE
+021L,ARTS (SAB) (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+022W,"MANAGEMENT STUDIES (TV) (Trincomalee Campus, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+022R,"MANAGEMENT STUDIES (TV) (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+023G,ARCHITECTURE (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+024G,DESIGN (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+025A,LAW (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+025B,LAW (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+025E,LAW (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+026G,INFORMATION TECHNOLOGY (IT) (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+027D,MANAGEMENT AND INFORMATION TECHNOLOGY (MIT) (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+028C,MANAGEMENT AND PUBLIC POLICY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+029W,"COMMUNICATION STUDIES (Trincomalee Campus, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+030G,URBAN INFORMATICS AND PLANNING (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+031D,PEACE AND CONFLICT RESOLUTION (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+032A,AYURVEDA MEDICINE AND SURGERY (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+032P,"AYURVEDA MEDICINE AND SURGERY (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+033A,UNANI MEDICINE AND SURGERY (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+034G,FASHION DESIGN & PRODUCT DEVELOPMENT (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+035B,FOOD SCIENCE & TECHNOLOGY (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+035C,FOOD SCIENCE & TECHNOLOGY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+035L,FOOD SCIENCE & TECHNOLOGY (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+036E,SIDDHA MEDICINE AND SURGERY (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+036W,"SIDDHA MEDICINE AND SURGERY (Trincomalee Campus, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+037A,NURSING (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+037B,NURSING (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+037C,NURSING (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+037E,NURSING (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+037F,NURSING (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+037H,"NURSING (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+038K,INFORMATION AND COMMUNICATION TECHNOLOGY (ICT) (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+038R,"INFORMATION AND COMMUNICATION TECHNOLOGY (ICT) (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+039B,AGRICULTURAL TECHNOLOGY & MANAGEMENT (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+050K,HEALTH PROMOTION (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+051B,PHARMACY (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+051C,PHARMACY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+051E,PHARMACY (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+051F,PHARMACY (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+052B,MEDICAL LABORATORY SCIENCES (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+052C,MEDICAL LABORATORY SCIENCES (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+052E,MEDICAL LABORATORY SCIENCES (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+052F,MEDICAL LABORATORY SCIENCES (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+053B,RADIOGRAPHY (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+054A,PHYSIOTHERAPY (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+054B,PHYSIOTHERAPY (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+055D,ENVIRONMENTAL CONSERVATION & MANAGEMENT (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+056G,FACILITIES MANAGEMENT (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+057G,TRANSPORT MANAGEMENT & LOGISTICS ENGINEERING (TMLE) (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+058A,BIOCHEMISTRY & MOLECULAR BIOLOGY (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+059A,INDUSTRIAL STATISTICS & MATHEMATICAL FINANCE (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+060B,STATISTICS & OPERATIONS RESEARCH (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+062F,FISHERIES & MARINE SCIENCES (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+063J,ISLAMIC STUDIES (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+064U,SCIENCE AND TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+065U,COMPUTER SCIENCE & TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+066U,ENTREPRENEURSHIP AND MANAGEMENT (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+067U,ANIMAL PRODUCTION AND FOOD TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+068C,MUSIC (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+068E,MUSIC (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+068Y,"MUSIC (Swamy Vipulananda Institute of Aesthetic Studies, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+068Z,MUSIC (University of the Visual & Performing Arts),manual_seed_2024_handbook,1.00,TRUE
+069E,DANCE (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+069Y,"DANCE (Swamy Vipulananda Institute of Aesthetic Studies, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+069Z,DANCE (University of the Visual & Performing Arts),manual_seed_2024_handbook,1.00,TRUE
+070E,ART & DESIGN (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+071Y,"DRAMA & THEATRE (Swamy Vipulananda Institute of Aesthetic Studies, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+071Z,DRAMA & THEATRE (University of the Visual & Performing Arts),manual_seed_2024_handbook,1.00,TRUE
+072Y,"VISUAL & TECHNOLOGICAL ARTS (Swamy Vipulananda Institute of Aesthetic Studies, Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+073U,EXPORT AGRICULTURE (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+075U,INDUSTRIAL INFORMATION TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+076U,MINERAL RESOURCES AND TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+077C,BUSINESS INFORMATION SYSTEMS (HONOURS) (BIS) (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+079J,MANAGEMENT AND INFORMATION TECHNOLOGY (SEUSL) (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+081E,PHYSICAL EDUCATION (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+081L,PHYSICAL EDUCATION (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+082C,SPORTS SCIENCE & MANAGEMENT (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+082D,SPORTS SCIENCE & MANAGEMENT (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+082L,SPORTS SCIENCE & MANAGEMENT (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+083D,SPEECH AND HEARING SCIENCES (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+084J,ARABIC LANGUAGE (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+085Z,VISUAL ARTS (University of the Visual & Performing Arts),manual_seed_2024_handbook,1.00,TRUE
+086B,ANIMAL SCIENCE & FISHERIES (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+087M,FOOD PRODUCTION & TECHNOLOGY MANAGEMENT (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+088U,AQUATIC RESOURCES TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+090U,"HOSPITALITY, TOURISM AND EVENTS MANAGEMENT (Uva Wellassa University of Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+091G,INFORMATION TECHNOLOGY & MANAGEMENT (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+092K,TOURISM & HOSPITALITY MANAGEMENT (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+092L,TOURISM & HOSPITALITY MANAGEMENT (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+093F,AGRICULTURAL RESOURCE MANAGEMENT AND TECHNOLOGY (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+094F,AGRIBUSINESS MANAGEMENT (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+095F,GREEN TECHNOLOGY (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+096C,INFORMATION SYSTEMS (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+096L,INFORMATION SYSTEMS (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+096T,INFORMATION SYSTEMS (University of Colombo School of Computing),manual_seed_2024_handbook,1.00,TRUE
+097G,LANDSCAPE ARCHITECTURE (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+098D,TRANSLATION STUDIES (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+098E,TRANSLATION STUDIES (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+098H,"TRANSLATION STUDIES (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+098L,TRANSLATION STUDIES (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+099C,SOFTWARE ENGINEERING (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+099D,SOFTWARE ENGINEERING (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+099L,SOFTWARE ENGINEERING (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+100D,FILM & TELEVISION STUDIES (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+101R,"PROJECT MANAGEMENT (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+102A,ENGINEERING TECHNOLOGY (ET) (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+102C,ENGINEERING TECHNOLOGY(ET) (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+102D,ENGINEERING TECHNOLOGY (ET) (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+102E,ENGINEERING TECHNOLOGY (ET) (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+102F,ENGINEERING TECHNOLOGY (ET) (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+102K,ENGINEERING TECHNOLOGY (ET) (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+102L,ENGINEERING TECHNOLOGY (ET) (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+102M,ENGINEERING TECHNOLOGY (ET) (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+102U,ENGINEERING TECHNOLOGY (ET) (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+103A,BIOSYSTEMS TECHNOLOGY (BST) (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+103C,BIOSYSTEMS TECHNOLOGY (BST) (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+103D,BIOSYSTEMS TECHNOLOGY (BST) (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+103E,BIOSYSTEMS TECHNOLOGY (BST) (University of Jaffna),manual_seed_2024_handbook,1.00,TRUE
+103F,BIOSYSTEMS TECHNOLOGY (BST) (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+103H,"BIOSYSTEMS TECHNOLOGY (BST) (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+103J,BIOSYSTEMS TECHNOLOGY (BST) (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+103K,BIOSYSTEMS TECHNOLOGY (BST) (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+103L,BIOSYSTEMS TECHNOLOGY (BST) (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+103M,BIOSYSTEMS TECHNOLOGY (BST) (Wayamba University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+103U,BIOSYSTEMS TECHNOLOGY (BST) (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+104A,INFORMATION COMMUNICATION TECHNOLOGY (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+104C,INFORMATION COMMUNICATION TECHNOLOGY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+104D,INFORMATION COMMUNICATION TECHNOLOGY (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+104F,INFORMATION COMMUNICATION TECHNOLOGY (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+104H,"INFORMATION COMMUNICATION TECHNOLOGY (Eastern University, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+104J,INFORMATION COMMUNICATION TECHNOLOGY (South Eastern University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+104K,INFORMATION COMMUNICATION TECHNOLOGY (Rajarata University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+104R,"INFORMATION COMMUNICATION TECHNOLOGY (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+104U,INFORMATION COMMUNICATION TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+105C,TEACHING ENGLISH AS A SECOND LANGUAGE (TESL) (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+105D,TEACHING ENGLISH AS A SECOND LANGUAGE (TESL) (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+105L,TEACHING ENGLISH AS A SECOND LANGUAGE (TESL) (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+106F,MARINE AND FRESH WATER SCIENCES (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+107L,FOOD BUSINESS MANAGEMENT (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+108C,PHYSICAL SCIENCE - ICT (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+108D,PHYSICAL SCIENCE - ICT (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+109G,BUSINESS SCIENCE (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+110D,FINANCIAL ENGINEERING (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+111B,GEOGRAPHICAL INFORMATION SCIENCE (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+112B,SOCIAL WORK (University of Peradeniya),manual_seed_2024_handbook,1.00,TRUE
+112C,SOCIAL WORK (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+113F,FINANCIAL MATHEMATICS AND INDUSTRIAL STATISTICS (University of Ruhuna),manual_seed_2024_handbook,1.00,TRUE
+114U,HUMAN RESOURCE DEVELOPMENT (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+115D,OCCUPATIONAL THERAPY (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+116C,OPTOMETRY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+117G,ARTIFICIAL INTELLIGENCE (University of Moratuwa),manual_seed_2024_handbook,1.00,TRUE
+118D,APPLIED CHEMISTRY (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+119D,ELECTRONICS AND COMPUTER SCIENCE (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+120P,"INDIGENOUS MEDICINAL RESOURCES (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+121P,"HEALTH INFORMATION AND COMMUNICATION TECHNOLOGY (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+122P,"HEALTH TOURISM AND HOSPITALITY MANAGEMENT (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+123P,"BIOMEDICAL TECHNOLOGY (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+124P,"INDIGENOUS PHARMACEUTICAL TECHNOLOGY (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+125P,"YOGA AND PARAPSYCHOLOGY (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+126P,"SOCIAL STUDIES IN INDIGENOUS KNOWLEDGE (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+127D,ACCOUNTING INFORMATION SYSTEMS (University of Kelaniya),manual_seed_2024_handbook,1.00,TRUE
+128C,ARTS - INFORMATION TECHNOLOGY (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+129C,AQUATIC BIORESOURCES (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+130C,URBAN BIO RESOURCES (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+131C,FINANCIAL ECONOMICS (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+132U,ENGLISH LANGUAGE & APPLIED LINGUISTICS (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+133R,"BANKING AND INSURANCE (University of Vavuniya, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE
+134C,CREATIVE MUSIC TECHNOLOGY AND PRODUCTION (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+135U,PLANTATION MANAGEMENT AND TECHNOLOGY (Uva Wellassa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+136L,DATA SCIENCE (Sabaragamuwa University of Sri Lanka),manual_seed_2024_handbook,1.00,TRUE
+137A,PRIMARY EDUCATION (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+138A,MEDICAL IMAGING TECHNOLOGY (University of Colombo),manual_seed_2024_handbook,1.00,TRUE
+139C,POLYMER SCIENCE AND INDUSTRIAL MANAGEMENT (University of Sri Jayewardenepura),manual_seed_2024_handbook,1.00,TRUE
+140P,"SERVICE MANAGEMENT (Gampaha Wickramarachchi University of Indigenous Medicine, Sri Lanka)",manual_seed_2024_handbook,1.00,TRUE

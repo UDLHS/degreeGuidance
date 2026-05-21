@@ -112,6 +112,7 @@ class University(Base):
 
     district: Mapped["District | None"] = relationship(back_populates="universities")
     faculties: Mapped[list["Faculty"]] = relationship(back_populates="university")
+    courses: Mapped[list["Course"]] = relationship(back_populates="university")
 
 
 class Faculty(Base):
