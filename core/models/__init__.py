@@ -1,7 +1,4 @@
-"""Model exports.
-
-Every model in the project should be importable from `core.models`.
-"""
+"""Model exports."""
 
 from core.models.reference import (
     District,
@@ -15,17 +12,12 @@ from core.models.reference import (
 )
 from core.models.course import Course
 from core.models.course_eligibility import CourseStreamEligibility, CourseAlias
+from core.models.cutoffs import ZScoreCutoff, IngestionRun, ParseError
 
 __all__ = [
-    "District",
-    "Faculty",
-    "Medium",
-    "SpecialProvisionCategory",
-    "Stream",
-    "StreamSubject",
-    "Subject",
-    "University",
+    "District", "Faculty", "Medium", "SpecialProvisionCategory",
+    "Stream", "StreamSubject", "Subject", "University",
     "Course",
-    "CourseStreamEligibility",
-    "CourseAlias",
+    "CourseStreamEligibility", "CourseAlias",
+    "ZScoreCutoff", "IngestionRun", "ParseError",
 ]
