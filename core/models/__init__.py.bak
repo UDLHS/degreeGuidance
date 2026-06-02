@@ -1,4 +1,5 @@
 """Model exports."""
+
 from core.models.reference import (
     District,
     Faculty,
@@ -12,12 +13,11 @@ from core.models.reference import (
 from core.models.course import Course
 from core.models.course_eligibility import CourseStreamEligibility, CourseAlias
 from core.models.cutoffs import ZScoreCutoff, IngestionRun, ParseError
-from core.models.eligibility import CourseMedium, EligibilityAudit
+
 __all__ = [
     "District", "Faculty", "Medium", "SpecialProvisionCategory",
     "Stream", "StreamSubject", "Subject", "University",
     "Course",
     "CourseStreamEligibility", "CourseAlias",
     "ZScoreCutoff", "IngestionRun", "ParseError",
-    "CourseMedium", "EligibilityAudit",
 ]
