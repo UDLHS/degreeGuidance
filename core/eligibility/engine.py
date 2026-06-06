@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from decimal import Decimal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,7 +161,7 @@ async def evaluate_eligibility(
             {
                 "exam_year": used_year,
                 "district_id": district_id,
-                "student_z_score": req.z_score,
+                "student_z_score": Decimal(str(req.z_score)),
                 "student_stream_id": stream_id,
             },
         )

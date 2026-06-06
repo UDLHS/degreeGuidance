@@ -1,0 +1,948 @@
+# Eligibility regression cases (masterplan v4 §16.1).
+# Every case is ALSO cross-checked against an independent reference
+# implementation by the test runner; the `assert` block adds explicit pins.
+cases:
+- id: exact_001A_colombo
+  category: exactly_at_cutoff
+  input:
+    z_score: 2.37
+    district: COLOMBO
+    stream: BIO_SCIENCE
+  assert:
+    includes:
+    - course_code: 001A
+      status: eligible
+      is_marginal: true
+- id: below_001A_colombo
+  category: below_cutoff
+  input:
+    z_score: 2.3699
+    district: COLOMBO
+    stream: BIO_SCIENCE
+  assert:
+    excludes:
+    - 001A
+- id: disadv_001A_vavuniya_at
+  category: disadvantaged_district
+  input:
+    z_score: 2.8227
+    district: VAVUNIYA
+    stream: BIO_SCIENCE
+  assert:
+    includes:
+    - course_code: 001A
+      status: eligible
+      is_marginal: true
+- id: disadv_001A_vavuniya_below
+  category: disadvantaged_district
+  input:
+    z_score: 2.8226
+    district: VAVUNIYA
+    stream: BIO_SCIENCE
+  assert:
+    excludes:
+    - 001A
+- id: exact_001A_jaffna
+  category: exactly_at_cutoff
+  input:
+    z_score: 2.3703
+    district: JAFFNA
+    stream: BIO_SCIENCE
+  assert:
+    includes:
+    - course_code: 001A
+      status: eligible
+- id: below_001A_jaffna
+  category: below_cutoff
+  input:
+    z_score: 2.3702
+    district: JAFFNA
+    stream: BIO_SCIENCE
+  assert:
+    excludes:
+    - 001A
+- id: nqc_001A_mullaitivu
+  category: nqc
+  input:
+    z_score: 3.0
+    district: MULLAITIVU
+    stream: BIO_SCIENCE
+  assert:
+    excludes:
+    - 001A
+- id: stream_mismatch_001A
+  category: stream_mismatch
+  input:
+    z_score: 3.0
+    district: COLOMBO
+    stream: COMMERCE
+  assert:
+    excludes:
+    - 001A
+- id: all_island_019A_arts
+  category: all_island_merit
+  input:
+    z_score: 1.67
+    district: COLOMBO
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: all_island_019A_below
+  category: all_island_merit
+  input:
+    z_score: 1.66
+    district: GAMPAHA
+    stream: ARTS
+  assert:
+    excludes:
+    - 019A
+- id: conditional_arts_high_z
+  category: conditional
+  input:
+    z_score: 2.0
+    district: COLOMBO
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: negative_cutoff_z0
+  category: negative_cutoff_arts
+  input:
+    z_score: 0.0
+    district: JAFFNA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: negative_cutoff_low
+  category: negative_cutoff_arts
+  input:
+    z_score: -0.5
+    district: COLOMBO
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: missing_year_future
+  category: missing_year_fallback
+  input:
+    z_score: 2.0
+    district: COLOMBO
+    stream: BIO_SCIENCE
+    exam_year: 2099
+  assert:
+    expect_empty: true
+- id: missing_year_past
+  category: missing_year_fallback
+  input:
+    z_score: 2.0
+    district: COLOMBO
+    stream: BIO_SCIENCE
+    exam_year: 2019
+  assert:
+    expect_empty: true
+- id: tier_current_default
+  category: confidence_tier
+  input:
+    z_score: 1.95
+    district: COLOMBO
+    stream: PHYSICAL_SCIENCE
+  assert:
+    expect_tier: current
+- id: matrix_AMPARA_BIO_SCIENCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: AMPARA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_AMPARA_PHYSICAL_SCIENCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: AMPARA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_AMPARA_ARTS_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: AMPARA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_AMPARA_COMMERCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: AMPARA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_ANURADHAPURA_BIO_SCIENCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: ANURADHAPURA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_ANURADHAPURA_PHYSICAL_SCIENCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: ANURADHAPURA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_ANURADHAPURA_ARTS_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: ANURADHAPURA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_ANURADHAPURA_COMMERCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: ANURADHAPURA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_BADULLA_BIO_SCIENCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: BADULLA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_BADULLA_PHYSICAL_SCIENCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: BADULLA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_BADULLA_ARTS_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: BADULLA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_BADULLA_COMMERCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: BADULLA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_BATTICALOA_BIO_SCIENCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: BATTICALOA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_BATTICALOA_PHYSICAL_SCIENCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: BATTICALOA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_BATTICALOA_ARTS_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: BATTICALOA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_BATTICALOA_COMMERCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: BATTICALOA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_COLOMBO_BIO_SCIENCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: COLOMBO
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_COLOMBO_PHYSICAL_SCIENCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: COLOMBO
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_COLOMBO_ARTS_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: COLOMBO
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_COLOMBO_COMMERCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: COLOMBO
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_GALLE_BIO_SCIENCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: GALLE
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_GALLE_PHYSICAL_SCIENCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: GALLE
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_GALLE_ARTS_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: GALLE
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_GALLE_COMMERCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: GALLE
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_GAMPAHA_BIO_SCIENCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: GAMPAHA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_GAMPAHA_PHYSICAL_SCIENCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: GAMPAHA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_GAMPAHA_ARTS_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: GAMPAHA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_GAMPAHA_COMMERCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: GAMPAHA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_HAMBANTOTA_BIO_SCIENCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: HAMBANTOTA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_HAMBANTOTA_PHYSICAL_SCIENCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: HAMBANTOTA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_HAMBANTOTA_ARTS_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: HAMBANTOTA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_HAMBANTOTA_COMMERCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: HAMBANTOTA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_JAFFNA_BIO_SCIENCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: JAFFNA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_JAFFNA_PHYSICAL_SCIENCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: JAFFNA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_JAFFNA_ARTS_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: JAFFNA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_JAFFNA_COMMERCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: JAFFNA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_KALUTARA_BIO_SCIENCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: KALUTARA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KALUTARA_PHYSICAL_SCIENCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: KALUTARA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KALUTARA_ARTS_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: KALUTARA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_KALUTARA_COMMERCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: KALUTARA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_KANDY_BIO_SCIENCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: KANDY
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KANDY_PHYSICAL_SCIENCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: KANDY
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KANDY_ARTS_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: KANDY
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_KANDY_COMMERCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: KANDY
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_KEGALLE_BIO_SCIENCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: KEGALLE
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KEGALLE_PHYSICAL_SCIENCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: KEGALLE
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KEGALLE_ARTS_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: KEGALLE
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_KEGALLE_COMMERCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: KEGALLE
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_KILINOCHCHI_BIO_SCIENCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: KILINOCHCHI
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KILINOCHCHI_PHYSICAL_SCIENCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: KILINOCHCHI
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KILINOCHCHI_ARTS_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: KILINOCHCHI
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_KILINOCHCHI_COMMERCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: KILINOCHCHI
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_KURUNEGALA_BIO_SCIENCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: KURUNEGALA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KURUNEGALA_PHYSICAL_SCIENCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: KURUNEGALA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_KURUNEGALA_ARTS_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: KURUNEGALA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_KURUNEGALA_COMMERCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: KURUNEGALA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_MANNAR_BIO_SCIENCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: MANNAR
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MANNAR_PHYSICAL_SCIENCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: MANNAR
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MANNAR_ARTS_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: MANNAR
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_MANNAR_COMMERCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: MANNAR
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_MATALE_BIO_SCIENCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: MATALE
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MATALE_PHYSICAL_SCIENCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: MATALE
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MATALE_ARTS_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: MATALE
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_MATALE_COMMERCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: MATALE
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_MATARA_BIO_SCIENCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: MATARA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MATARA_PHYSICAL_SCIENCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: MATARA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MATARA_ARTS_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: MATARA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_MATARA_COMMERCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: MATARA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_MONARAGALA_BIO_SCIENCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: MONARAGALA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MONARAGALA_PHYSICAL_SCIENCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: MONARAGALA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MONARAGALA_ARTS_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: MONARAGALA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_MONARAGALA_COMMERCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: MONARAGALA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_MULLAITIVU_BIO_SCIENCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: MULLAITIVU
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MULLAITIVU_PHYSICAL_SCIENCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: MULLAITIVU
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_MULLAITIVU_ARTS_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: MULLAITIVU
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_MULLAITIVU_COMMERCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: MULLAITIVU
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_NUWARA_ELIYA_BIO_SCIENCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: NUWARA_ELIYA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_NUWARA_ELIYA_PHYSICAL_SCIENCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: NUWARA_ELIYA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_NUWARA_ELIYA_ARTS_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: NUWARA_ELIYA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_NUWARA_ELIYA_COMMERCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: NUWARA_ELIYA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_POLONNARUWA_BIO_SCIENCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: POLONNARUWA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_POLONNARUWA_PHYSICAL_SCIENCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: POLONNARUWA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_POLONNARUWA_ARTS_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: POLONNARUWA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_POLONNARUWA_COMMERCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: POLONNARUWA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_PUTTALAM_BIO_SCIENCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: PUTTALAM
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_PUTTALAM_PHYSICAL_SCIENCE_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: PUTTALAM
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_PUTTALAM_ARTS_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: PUTTALAM
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_PUTTALAM_COMMERCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: PUTTALAM
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_RATNAPURA_BIO_SCIENCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: RATNAPURA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_RATNAPURA_PHYSICAL_SCIENCE_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: RATNAPURA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_RATNAPURA_ARTS_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: RATNAPURA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_RATNAPURA_COMMERCE_0.0
+  category: broad_coverage
+  input:
+    z_score: 0.0
+    district: RATNAPURA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_TRINCOMALEE_BIO_SCIENCE_0.5
+  category: broad_coverage
+  input:
+    z_score: 0.5
+    district: TRINCOMALEE
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_TRINCOMALEE_PHYSICAL_SCIENCE_1.0
+  category: broad_coverage
+  input:
+    z_score: 1.0
+    district: TRINCOMALEE
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_TRINCOMALEE_ARTS_1.5
+  category: broad_coverage
+  input:
+    z_score: 1.5
+    district: TRINCOMALEE
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_TRINCOMALEE_COMMERCE_1.9
+  category: broad_coverage
+  input:
+    z_score: 1.9
+    district: TRINCOMALEE
+    stream: COMMERCE
+  assert:
+    cross_check_only: true
+- id: matrix_VAVUNIYA_BIO_SCIENCE_2.2
+  category: broad_coverage
+  input:
+    z_score: 2.2
+    district: VAVUNIYA
+    stream: BIO_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_VAVUNIYA_PHYSICAL_SCIENCE_2.5
+  category: broad_coverage
+  input:
+    z_score: 2.5
+    district: VAVUNIYA
+    stream: PHYSICAL_SCIENCE
+  assert:
+    cross_check_only: true
+- id: matrix_VAVUNIYA_ARTS_2.85
+  category: broad_coverage
+  input:
+    z_score: 2.85
+    district: VAVUNIYA
+    stream: ARTS
+  assert:
+    cross_check_only: true
+- id: matrix_VAVUNIYA_COMMERCE_-0.5
+  category: broad_coverage
+  input:
+    z_score: -0.5
+    district: VAVUNIYA
+    stream: COMMERCE
+  assert:
+    cross_check_only: true

@@ -1,0 +1,190 @@
+"""Eligibility correctness suite (masterplan v4 §16.1).
+
+For EVERY case in tests/fixtures/eligibility_cases.yaml we:
+  1. Run the production engine (core.eligibility.engine.evaluate_eligibility).
+  2. Independently recompute the expected eligible set with a plain reference
+     query (JOIN form, vs the engine's EXISTS+ARRAY form) — a genuinely separate
+     code path, so a bug in one is unlikely to be mirrored in the other.
+  3. Assert the engine's results == the reference, course-for-course, including
+     status / cutoff / margin / is_marginal.
+  4. Enforce universal invariants (NQC excluded, aptitude => conditional,
+     ordering, count arithmetic, tier formula).
+  5. Apply the case's explicit `assert` pins (includes / excludes / expect_empty
+     / expect_tier).
+
+The reference and invariants are the oracle, so no expected values are hardcoded
+except the DB-verified 001A anchors embedded in the fixture's explicit pins.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+import yaml
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.eligibility.engine import MARGINAL_THRESHOLD, evaluate_eligibility
+from core.schemas.eligibility import EligibilityRequest
+
+_FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "eligibility_cases.yaml"
+_CASES = yaml.safe_load(_FIXTURE.read_text())["cases"]
+
+
+def _case_id(case: dict) -> str:
+    return f"{case['category']}::{case['id']}"
+
+
+async def _reference(session: AsyncSession, z: float, district: str, stream: str, year: int):
+    """Independent recomputation of the eligible set (plain JOIN form)."""
+    did = (
+        await session.execute(text("SELECT district_id FROM districts WHERE code = :c"), {"c": district})
+    ).scalar_one_or_none()
+    sid = (
+        await session.execute(text("SELECT stream_id FROM streams WHERE code = :c"), {"c": stream})
+    ).scalar_one_or_none()
+    assert did is not None, f"district {district} missing"
+    assert sid is not None, f"stream {stream} missing"
+
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT zc.course_code,
+                       zc.z_score,
+                       c.requires_aptitude_test
+                FROM z_score_cutoffs zc
+                JOIN courses c                      ON c.course_code = zc.course_code
+                JOIN course_stream_eligibility e    ON e.course_code = c.course_code
+                WHERE zc.year = :y
+                  AND zc.district_id = :d
+                  AND e.stream_id = :s
+                  AND zc.z_score IS NOT NULL
+                  AND c.is_active = TRUE
+                  AND zc.z_score <= :z
+                """
+            ),
+            {"y": year, "d": did, "s": sid, "z": Decimal(str(z))},
+        )
+    ).mappings().all()
+
+    expected = {}
+    for r in rows:
+        cutoff = float(r["z_score"])
+        margin = round(z - cutoff, 4)
+        expected[r["course_code"]] = {
+            "cutoff": cutoff,
+            "margin": margin,
+            "status": "conditional" if r["requires_aptitude_test"] else "eligible",
+            "is_marginal": margin <= MARGINAL_THRESHOLD,
+        }
+    return expected
+
+
+async def _max_year(session: AsyncSession) -> int:
+    return (
+        await session.execute(text("SELECT MAX(year) FROM z_score_cutoffs"))
+    ).scalar_one()
+
+
+def _expected_tier(max_year: int, used_year: int) -> str:
+    gap = max_year - used_year
+    if gap <= 0:
+        return "current"
+    if gap == 1:
+        return "previous_year"
+    return "estimated"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _sanity_anchor_note():
+    # The 001A anchors assume Medicine (001A) is BIO_SCIENCE-eligible; a dedicated
+    # test below asserts that explicitly so the assumption can never go silent.
+    pass
+
+
+async def test_001A_is_bio_science_eligible(db_session: AsyncSession):
+    """Guard for the 001A anchors: Medicine must be a BIO_SCIENCE course."""
+    found = (
+        await db_session.execute(
+            text(
+                """
+                SELECT 1 FROM course_stream_eligibility e
+                JOIN streams s ON s.stream_id = e.stream_id
+                WHERE e.course_code = '001A' AND s.code = 'BIO_SCIENCE'
+                """
+            )
+        )
+    ).first()
+    assert found is not None, "001A (Medicine) is not BIO_SCIENCE-eligible; fixture anchors invalid"
+
+
+@pytest.mark.parametrize("case", _CASES, ids=[_case_id(c) for c in _CASES])
+async def test_eligibility_case(case: dict, db_session: AsyncSession):
+    inp = case["input"]
+    z = float(inp["z_score"])
+    district = inp["district"]
+    stream = inp["stream"]
+    exam_year = inp.get("exam_year")
+    pins = case.get("assert", {})
+
+    req = EligibilityRequest(
+        z_score=z, district_code=district, stream_code=stream, exam_year=exam_year
+    )
+    resp = await evaluate_eligibility(db_session, req)
+
+    used_year = exam_year if exam_year is not None else await _max_year(db_session)
+    by_code = {r.course_code: r for r in resp.results}
+
+    # ---- count arithmetic ----
+    assert resp.total_count == len(resp.results)
+    assert resp.eligible_count + resp.conditional_count == resp.total_count
+
+    # ---- ordering: cutoff descending ----
+    cutoffs = [r.cutoff_z_score for r in resp.results]
+    assert cutoffs == sorted(cutoffs, reverse=True), "results not ordered by cutoff desc"
+
+    # ---- universal invariants on every returned row ----
+    for r in resp.results:
+        assert r.cutoff_z_score is not None, "NQC/NULL cutoff leaked into results"
+        assert r.cutoff_z_score <= z + 1e-9, "course above student's z returned"
+        assert r.student_margin == pytest.approx(round(z - r.cutoff_z_score, 4), abs=1e-6)
+        assert r.is_marginal == (r.student_margin <= MARGINAL_THRESHOLD)
+        if r.requires_aptitude_test:
+            assert r.status == "conditional"
+        else:
+            assert r.status == "eligible"
+
+    # ---- confidence tier formula ----
+    assert resp.confidence_tier == _expected_tier(await _max_year(db_session), used_year)
+
+    # ---- cross-check against the independent reference (THE oracle) ----
+    # (skip only for missing-year cases, which the engine returns empty by design)
+    if not pins.get("expect_empty"):
+        expected = await _reference(db_session, z, district, stream, used_year)
+        assert set(by_code) == set(expected), (
+            f"set mismatch: only-engine={set(by_code) - set(expected)}, "
+            f"only-ref={set(expected) - set(by_code)}"
+        )
+        for code, exp in expected.items():
+            got = by_code[code]
+            assert got.cutoff_z_score == pytest.approx(exp["cutoff"], abs=1e-6)
+            assert got.status == exp["status"]
+            assert got.is_marginal == exp["is_marginal"]
+
+    # ---- explicit per-case pins ----
+    if pins.get("expect_empty"):
+        assert resp.total_count == 0, "missing-year case should return no rows (no fallback)"
+    if "expect_tier" in pins:
+        assert resp.confidence_tier == pins["expect_tier"]
+    for inc in pins.get("includes", []):
+        code = inc["course_code"]
+        assert code in by_code, f"{code} expected but absent"
+        if "status" in inc:
+            assert by_code[code].status == inc["status"]
+        if "is_marginal" in inc:
+            assert by_code[code].is_marginal == inc["is_marginal"]
+    for code in pins.get("excludes", []):
+        assert code not in by_code, f"{code} expected absent but present"
