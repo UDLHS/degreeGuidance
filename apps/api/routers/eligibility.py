@@ -30,6 +30,6 @@ async def post_eligibility(
         return await evaluate_eligibility(db, payload)
     except EligibilityInputError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc

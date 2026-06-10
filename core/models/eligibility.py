@@ -67,7 +67,9 @@ class EligibilityAudit(Base):
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     # FK to users(user_id) deferred to Phase 8 (users table does not exist yet).
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
 
     z_score: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
     district_id: Mapped[int] = mapped_column(

@@ -1,22 +1,25 @@
 """FastAPI application entrypoint.
 
-Phase 6 mounts a single router (eligibility) plus a health check. Run with:
-    uvicorn apps.api.main:app --reload
+Mounts the eligibility router, the auth router (Admin Slice 1 A2), and a health
+check. Run with: uvicorn apps.api.main:app --reload
 """
 
 from __future__ import annotations
 
 from fastapi import FastAPI
 
-from apps.api.routers import eligibility
+from apps.api.routers import admin_aliases, admin_courses, auth, eligibility
 
 app = FastAPI(
     title="Degree Guidance API",
-    version="0.6.0",
-    description="Sri Lankan university admissions guidance — eligibility engine.",
+    version="0.7.0",
+    description="Sri Lankan university admissions guidance — eligibility + admin auth.",
 )
 
 app.include_router(eligibility.router)
+app.include_router(auth.router)
+app.include_router(admin_aliases.router)
+app.include_router(admin_courses.router)
 
 
 @app.get("/health", tags=["meta"])

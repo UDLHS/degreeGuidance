@@ -21,4 +21,8 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
 
 
+    # Auth / JWT (Admin Slice 1 A2)
+    jwt_secret_key: str = Field(..., description="HS256 signing key for access tokens")
+    jwt_algorithm: str = Field(default="HS256")
+    jwt_access_token_expire_minutes: int = Field(default=60)
 settings = Settings()
