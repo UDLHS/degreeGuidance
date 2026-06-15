@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -164,12 +165,13 @@ export default function IngestionsPage() {
                 <TableHead>Status</TableHead>
                 <TableHead>Year</TableHead>
                 <TableHead className="text-right">Rows</TableHead>
+                <TableHead className="text-right">View</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {runs.length === 0 && !loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
                     No ingestion runs yet.
                   </TableCell>
                 </TableRow>
@@ -189,6 +191,11 @@ export default function IngestionsPage() {
                       {r.records_failed ? (
                         <span className="text-destructive"> / {r.records_failed}</span>
                       ) : null}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/admin/ingestions/${r.run_id}`} className="text-sm text-primary">
+                        View
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))

@@ -25,7 +25,7 @@ async function proxy(req: NextRequest, ctx: { params: { path?: string[] } }) {
   if (contentType) headers.set("content-type", contentType);
 
   const init: RequestInit & { duplex?: "half" } = { method: req.method, headers };
-  if (req.method !== "GET" && req.method !== "HEAD") {
+  if (req.method !== "GET" && req.method !== "HEAD" && req.body) {
     init.body = req.body;
     init.duplex = "half"; // required when streaming a request body (undici)
   }
