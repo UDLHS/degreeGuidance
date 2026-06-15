@@ -14,6 +14,7 @@ from apps.api.routers import (
     admin_ingestions,
     auth,
     eligibility,
+    recommendations,
 )
 
 app = FastAPI(
@@ -23,6 +24,7 @@ app = FastAPI(
 )
 
 app.include_router(eligibility.router)
+app.include_router(recommendations.router)
 app.include_router(auth.router)
 app.include_router(admin_aliases.router)
 app.include_router(admin_courses.router)
