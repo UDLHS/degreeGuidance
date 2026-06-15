@@ -91,7 +91,7 @@ async def test_list_ok_for_admin(client: AsyncClient, admin_token: str):
     r = await client.get("/api/admin/aliases?limit=5", headers=_auth(admin_token))
     assert r.status_code == 200
     body = r.json()
-    assert body["total"] >= 532  # existing seeded aliases
+    assert body["total"] >= 530  # seeded aliases (530 after migration 21 removed the 006K phantom)
     assert len(body["items"]) == 5
 
 
