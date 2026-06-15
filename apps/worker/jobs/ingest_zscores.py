@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from core.db import AsyncSessionLocal
@@ -65,6 +65,30 @@ def parse_zscore_value(raw) -> tuple[Optional[float], Optional[str]]:
     if v < MIN_VALID_ZSCORE or v > MAX_VALID_ZSCORE:
         return None, f"OUT_OF_RANGE: {v}"
     return v, None
+
+
+async def cutoff_coverage_gaps(db, exam_year: int) -> list[str]:
+    """Active catalog courses that received NO cutoff for exam_year.
+
+    This is the safeguard against silent extractor drops / code-misreads: after a
+    full-handbook ingest, every course in this list either legitimately had no
+    intake that year (NQC) or is a misread that landed under the wrong code (as
+    007K did when it was read as 006K). Either way it must be a conscious review
+    decision, never an unnoticed gap. Surfaced on the ingestion run's notes.
+    """
+    rows = (
+        await db.execute(
+            text(
+                "SELECT c.course_code FROM courses c "
+                "WHERE c.is_active = TRUE AND NOT EXISTS ("
+                "  SELECT 1 FROM z_score_cutoffs z "
+                "  WHERE z.course_code = c.course_code AND z.year = :y) "
+                "ORDER BY c.course_code"
+            ),
+            {"y": exam_year},
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 async def ingest_zscores(
@@ -186,11 +210,19 @@ async def ingest_zscores(
         for pe in parse_errors:
             db.add(pe)
 
+        # Coverage check (visible to the uncommitted upserts in this txn): flag
+        # active courses that ended up with no cutoff for this year, for review.
+        gaps = await cutoff_coverage_gaps(db, exam_year)
+
         # Finalize the run
         run.status = "partial" if failed > 0 else "success"
         run.completed_at = datetime.now(timezone.utc)
         run.records_processed = processed
         run.records_failed = failed
+        run.notes = (
+            f"coverage: {len(gaps)} active course(s) without cutoffs for {exam_year}"
+            + (f" — review: {', '.join(gaps[:30])}" if gaps else "")
+        )
 
         await db.commit()
 
