@@ -25,4 +25,15 @@ class Settings(BaseSettings):
     jwt_secret_key: str = Field(..., description="HS256 signing key for access tokens")
     jwt_algorithm: str = Field(default="HS256")
     jwt_access_token_expire_minutes: int = Field(default=60)
+
+    # Redis / background jobs (Arq)
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis DSN for the Arq broker and cache",
+    )
+
+    # Ingestion working directory — uploaded PDFs + extracted CSVs (C2)
+    ingestion_work_dir: str = Field(default="data/ingestion_work")
+
+
 settings = Settings()

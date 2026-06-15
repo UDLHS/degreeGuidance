@@ -18,12 +18,18 @@ from pydantic import BaseModel, ConfigDict
 
 
 class IngestionCreateResponse(BaseModel):
-    """Mirror of the ingest_zscores() return dict (handoff §7.2 contract)."""
+    """Result of a POST to /ingestions (CSV-direct, PDF-upload, or promote).
+
+    For the synchronous CSV path and /promote, processed/failed mirror the
+    ingest_zscores() return dict. For the async PDF path, status='running' and
+    processed/failed are null until the Arq extraction job completes.
+    """
 
     run_id: str
     status: str
-    processed: int
-    failed: int
+    run_type: str
+    processed: int | None = None
+    failed: int | None = None
 
 
 class IngestionRunOut(BaseModel):

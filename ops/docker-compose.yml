@@ -1,0 +1,29 @@
+# Local infrastructure for degree-guidance background jobs.
+#
+# Brings up Redis 7 — the Arq broker for PDF-extraction jobs (Part C2) and the
+# app cache. PostgreSQL runs natively in WSL on this machine, so it is
+# intentionally NOT included here (matches the dev setup; the production
+# topology in masterplan §12.3 adds postgres/api/worker/nginx).
+#
+#   docker compose -f ops/docker-compose.yml up -d redis
+#   docker exec degree-redis redis-cli ping        # -> PONG
+#   docker compose -f ops/docker-compose.yml down   # stop (keeps the volume)
+#
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: degree-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - degree_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  degree_redis_data:
