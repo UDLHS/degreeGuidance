@@ -11,7 +11,7 @@ course_number is the 3-digit course-of-study identifier (e.g., '001').
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -29,6 +29,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
+
+if TYPE_CHECKING:
+    from core.models.reference import Faculty, University
 
 
 class Course(Base):
@@ -90,5 +93,5 @@ class Course(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    university: Mapped["University"] = relationship(back_populates="courses")  # type: ignore[name-defined]
-    faculty: Mapped["Faculty | None"] = relationship()  # type: ignore[name-defined]
+    university: Mapped["University"] = relationship(back_populates="courses")
+    faculty: Mapped["Faculty | None"] = relationship()
