@@ -15,6 +15,7 @@ from apps.api.routers import (
     auth,
     eligibility,
     recommendations,
+    reference,
 )
 
 app = FastAPI(
@@ -25,6 +26,7 @@ app = FastAPI(
 
 app.include_router(eligibility.router)
 app.include_router(recommendations.router)
+app.include_router(reference.router)
 app.include_router(auth.router)
 app.include_router(admin_aliases.router)
 app.include_router(admin_courses.router)
