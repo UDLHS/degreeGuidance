@@ -20,6 +20,7 @@ class StreamOut(BaseModel):
     code: str
     name_en: str
     description: str | None = None
+    subjects: list[str] = []
 
 
 class UniversityOut(BaseModel):

@@ -10,7 +10,7 @@ navigation category — masterplan §3).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.dependencies import get_db
@@ -35,13 +35,33 @@ async def get_reference(db: AsyncSession = Depends(get_db)) -> ReferenceResponse
         await db.scalars(select(University).order_by(University.code))
     ).all()
 
+    subject_rows = (
+        await db.execute(
+            text(
+                "SELECT s.code AS stream_code, sub.name_en AS subject_name "
+                "FROM stream_subjects ss "
+                "JOIN streams s ON s.stream_id = ss.stream_id "
+                "JOIN subjects sub ON sub.subject_id = ss.subject_id "
+                "ORDER BY s.code, sub.name_en"
+            )
+        )
+    ).mappings().all()
+    subjects_by_stream: dict[str, list[str]] = {}
+    for row in subject_rows:
+        subjects_by_stream.setdefault(row["stream_code"], []).append(row["subject_name"])
+
     return ReferenceResponse(
         districts=[
             DistrictOut(code=d.code, name_en=d.name_en, is_disadvantaged=d.is_disadvantaged)
             for d in districts
         ],
         streams=[
-            StreamOut(code=s.code, name_en=s.name_en, description=s.description)
+            StreamOut(
+                code=s.code,
+                name_en=s.name_en,
+                description=s.description,
+                subjects=subjects_by_stream.get(s.code, []),
+            )
             for s in streams
         ],
         universities=[

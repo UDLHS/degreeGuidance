@@ -18,3 +18,7 @@ async def test_reference_shape_and_counts(client: AsyncClient):
     assert len(b["universities"]) == 21
     cmb = next(u for u in b["universities"] if u["code"] == "CMB")
     assert cmb["name_en"] == "University of Colombo"
+
+    phys = next(s for s in b["streams"] if s["code"] == "PHYSICAL_SCIENCE")
+    assert "Combined Mathematics" in phys["subjects"]
+    assert "Physics" in phys["subjects"]
