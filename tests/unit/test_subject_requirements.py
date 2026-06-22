@@ -1,0 +1,143 @@
+"""Unit tests for the subject-requirement checker, using REAL rules read
+directly from the 2024/2025 handbook §2.2 (not invented examples)."""
+
+from __future__ import annotations
+
+from core.eligibility.subject_requirements import (
+    SubjectResult,
+    evaluate_subject_rule,
+)
+
+
+def _s(*pairs: tuple[str, str]) -> list[SubjectResult]:
+    return [SubjectResult(subject=sub, grade=grade) for sub, grade in pairs]
+
+
+# Engineering (008): "At least three 'S' grades in Chemistry, Combined
+# Mathematics and Physics" -- exact, no substitution.
+ENGINEERING_RULE = {
+    "type": "and",
+    "conditions": [
+        {"type": "subject_min_grade", "subject": "Chemistry", "min_grade": "S"},
+        {"type": "subject_min_grade", "subject": "Combined Mathematics", "min_grade": "S"},
+        {"type": "subject_min_grade", "subject": "Physics", "min_grade": "S"},
+    ],
+}
+
+
+def test_engineering_pcm_student_qualifies():
+    pcm = _s(("Physics", "S"), ("Chemistry", "S"), ("Combined Mathematics", "S"))
+    assert evaluate_subject_rule(ENGINEERING_RULE, pcm) is True
+
+
+def test_engineering_pmi_student_does_not_qualify():
+    """The exact case the user raised: Physics+Maths+ICT, no Chemistry."""
+    pmi = _s(("Physics", "S"), ("Combined Mathematics", "S"), ("Information & Communication Technology", "S"))
+    assert evaluate_subject_rule(ENGINEERING_RULE, pmi) is False
+
+
+# Medicine (001): "At least two 'C' grades and a 'S' grade in Biology,
+# Chemistry and Physics" -- all three named, two of the three at C, one at S.
+# Modeled as: each of the 3 subjects present at >= S, AND at least 2 of them at >= C.
+MEDICINE_RULE = {
+    "type": "and",
+    "conditions": [
+        {"type": "subject_min_grade", "subject": "Biology", "min_grade": "S"},
+        {"type": "subject_min_grade", "subject": "Chemistry", "min_grade": "S"},
+        {"type": "subject_min_grade", "subject": "Physics", "min_grade": "S"},
+        {
+            "type": "count_from_list",
+            "subjects": ["Biology", "Chemistry", "Physics"],
+            "count": 2,
+            "min_grade": "C",
+        },
+    ],
+}
+
+
+def test_medicine_two_c_one_s_qualifies():
+    student = _s(("Biology", "C"), ("Chemistry", "C"), ("Physics", "S"))
+    assert evaluate_subject_rule(MEDICINE_RULE, student) is True
+
+
+def test_medicine_all_s_no_c_fails():
+    student = _s(("Biology", "S"), ("Chemistry", "S"), ("Physics", "S"))
+    assert evaluate_subject_rule(MEDICINE_RULE, student) is False
+
+
+def test_medicine_missing_subject_fails():
+    student = _s(("Biology", "C"), ("Chemistry", "C"), ("Combined Mathematics", "S"))
+    assert evaluate_subject_rule(MEDICINE_RULE, student) is False
+
+
+# IT (026): "3 passes including at least a 'C' grade in one of {Higher Maths,
+# Combined Maths, Maths, Physics}"
+IT_RULE = {
+    "type": "and",
+    "conditions": [
+        {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+        {
+            "type": "one_of_min_grade",
+            "subjects": ["Higher Mathematics", "Combined Mathematics", "Mathematics", "Physics"],
+            "min_grade": "C",
+        },
+    ],
+}
+
+
+def test_it_qualifies_with_combined_maths_credit():
+    student = _s(("Combined Mathematics", "C"), ("Physics", "S"), ("Chemistry", "S"))
+    assert evaluate_subject_rule(IT_RULE, student) is True
+
+
+def test_it_fails_without_credit_in_maths_or_physics():
+    student = _s(("Combined Mathematics", "S"), ("Physics", "S"), ("Chemistry", "S"))
+    assert evaluate_subject_rule(IT_RULE, student) is False
+
+
+# MIT (027) -- the OR pattern: 3 from Bio/PhysSci stream, OR 2 from that stream
+# + ICT as the third, PLUS a C grade in one of 4 maths/physics subjects.
+MIT_RULE = {
+    "type": "and",
+    "conditions": [
+        {
+            "type": "one_of_min_grade",
+            "subjects": ["Higher Mathematics", "Combined Mathematics", "Mathematics", "Physics"],
+            "min_grade": "C",
+        },
+        {
+            "type": "or",
+            "conditions": [
+                {
+                    "type": "count_from_list",
+                    "subjects": ["Biology", "Chemistry", "Physics", "Combined Mathematics", "Mathematics", "Higher Mathematics"],
+                    "count": 3,
+                    "min_grade": "S",
+                },
+                {
+                    "type": "and",
+                    "conditions": [
+                        {
+                            "type": "count_from_list",
+                            "subjects": ["Biology", "Chemistry", "Physics", "Combined Mathematics", "Mathematics", "Higher Mathematics"],
+                            "count": 2,
+                            "min_grade": "S",
+                        },
+                        {"type": "subject_min_grade", "subject": "Information & Communication Technology", "min_grade": "S"},
+                    ],
+                },
+            ],
+        },
+    ],
+}
+
+
+def test_mit_qualifies_via_ict_substitution():
+    """2 Physical-Science subjects + ICT as the third -- the alternate path."""
+    student = _s(("Combined Mathematics", "C"), ("Physics", "S"), ("Information & Communication Technology", "S"))
+    assert evaluate_subject_rule(MIT_RULE, student) is True
+
+
+def test_mit_fails_with_only_one_stream_subject_and_no_ict():
+    student = _s(("Combined Mathematics", "C"), ("Accounting", "S"), ("Economics", "S"))
+    assert evaluate_subject_rule(MIT_RULE, student) is False

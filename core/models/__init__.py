@@ -15,6 +15,7 @@ from core.models.cutoffs import ZScoreCutoff, IngestionRun, ParseError
 from core.models.eligibility import CourseMedium, EligibilityAudit
 from core.models.auth import AdminAction, AuthEvent, User
 from core.models.scoring import ScoringConfig
+from core.models.course_requirements import CourseRequirement
 __all__ = [
     "District", "Faculty", "Medium", "SpecialProvisionCategory",
     "Stream", "StreamSubject", "Subject", "University",
@@ -24,4 +25,5 @@ __all__ = [
     "CourseMedium", "EligibilityAudit",
     "User", "AdminAction", "AuthEvent",
     "ScoringConfig",
+    "CourseRequirement",
 ]
