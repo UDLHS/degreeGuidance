@@ -379,7 +379,7 @@ REQUIREMENTS: list[dict] = [
         "subject_rule": {"type": "and", "conditions": [
             {"type": "subject_min_grade", "subject": "Engineering Technology", "min_grade": "S"},
             {"type": "subject_min_grade", "subject": "Science for Technology", "min_grade": "S"},
-            {"type": "one_of_min_grade", "subjects": ["Economics", "Geography", "Home Economics", "English", "Communication and Media Studies", "Information & Communication Technology", "Art", "Business Studies", "Agricultural Science", "Accountancy", "Mathematics"], "min_grade": "S"},
+            {"type": "one_of_min_grade", "subjects": ["Economics", "Geography", "Home Economics", "English", "Communication & Media Studies", "Information & Communication Technology", "Art", "Business Studies", "Agricultural Science", "Accounting", "Mathematics"], "min_grade": "S"},
         ]},
     },
     {
@@ -388,7 +388,7 @@ REQUIREMENTS: list[dict] = [
         "subject_rule": {"type": "and", "conditions": [
             {"type": "subject_min_grade", "subject": "Biosystems Technology", "min_grade": "S"},
             {"type": "subject_min_grade", "subject": "Science for Technology", "min_grade": "S"},
-            {"type": "one_of_min_grade", "subjects": ["Economics", "Geography", "Home Economics", "English", "Communication and Media Studies", "Information & Communication Technology", "Art", "Business Studies", "Agricultural Science", "Accountancy", "Mathematics"], "min_grade": "S"},
+            {"type": "one_of_min_grade", "subjects": ["Economics", "Geography", "Home Economics", "English", "Communication & Media Studies", "Information & Communication Technology", "Art", "Business Studies", "Agricultural Science", "Accounting", "Mathematics"], "min_grade": "S"},
         ]},
     },
     {
@@ -491,7 +491,7 @@ REQUIREMENTS: list[dict] = [
                 {"type": "and", "conditions": [
                     {"type": "subject_min_grade", "subject": "Accounting", "min_grade": "S"},
                     {"type": "count_from_list", "subjects": ["Business Studies", "Economics"], "count": 1, "min_grade": "S"},
-                    {"type": "count_from_list", "subjects": ["Agricultural Science", "Geography", "German", "Combined Mathematics", "History", "Political Science", "English", "Logic & Scientific Methods", "French", "Physics", "Information & Communication Technology"], "count": 1, "min_grade": "S"},
+                    {"type": "count_from_list", "subjects": ["Agricultural Science", "Geography", "German", "Combined Mathematics", "History", "Political Science", "English", "Logic & Scientific Method", "French", "Physics", "Information & Communication Technology"], "count": 1, "min_grade": "S"},
                 ]},
             ]},
         ]},

@@ -68,13 +68,8 @@ def test_more_than_two_basket02_subjects_disallowed():
     assert check_arts_eligibility(_s("Buddhism", "Hinduism", "Christianity")) is False
 
 
-def test_two_aesthetic_subjects_same_area_disallowed():
-    """'No student is allowed to select the two subjects from one subject area.'"""
-    assert check_arts_eligibility(_s("Music - Oriental", "Music - Carnatic", "Economics")) is False
-
-
 def test_two_aesthetic_subjects_different_areas_allowed():
-    assert check_arts_eligibility(_s("Art", "Music - Western", "Economics")) is True
+    assert check_arts_eligibility(_s("Art", "Music", "Economics")) is True
 
 
 def test_more_than_two_basket04_languages_without_exemption_disallowed():

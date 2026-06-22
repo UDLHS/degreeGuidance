@@ -48,12 +48,19 @@ _RELIGION_CIVILIZATION_PAIRS = {
     "Islam": "Islamic Civilization",
 }
 
-# area name -> subjects in that area (no 2 subjects from the same area)
+# area name -> subjects in that area (no 2 subjects from the same area).
+# The handbook describes Dancing/Music/Drama & Theatre as having style
+# sub-variants (e.g. Music: Oriental/Carnatic/Western), but the subjects
+# catalog has one entry per area (Art/Dancing/Music/Drama & Theatre) -- since
+# a student can only select each area-subject once anyway, the "no 2 from the
+# same area" cap is automatically satisfied at this granularity; it doesn't
+# change any eligibility outcome (only which sub-style is irrelevant for
+# admission, not enrollment).
 BASKET_03_AREAS: dict[str, set[str]] = {
     "art": {"Art"},
-    "dancing": {"Dancing - Sinhala", "Dancing - Bharatha"},
-    "music": {"Music - Oriental", "Music - Carnatic", "Music - Western"},
-    "drama_theatre": {"Drama & Theatre - Sinhala", "Drama & Theatre - Tamil", "Drama & Theatre - English"},
+    "dancing": {"Dancing"},
+    "music": {"Music"},
+    "drama_theatre": {"Drama & Theatre"},
 }
 BASKET_03 = set().union(*BASKET_03_AREAS.values())
 
