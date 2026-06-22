@@ -65,6 +65,7 @@ class RecommendationResponse(BaseModel):
     mode: str  # "preference" | "normal"
     eligible_count: int
     conditional_count: int
+    subject_filtered_count: int = 0
     bucket_counts: dict[str, int]
     recommendations: list[ScoredRecommendation]
     also_offered_no_cutoff_count: int

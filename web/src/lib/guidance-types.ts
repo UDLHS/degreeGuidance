@@ -16,6 +16,8 @@ export type ReferenceData = {
   universities: University[];
 };
 
+export type SubjectInput = { subject: string; grade: "S" | "C" | "B" | "A" };
+
 export type DimensionBreakdownItem = {
   name: string;
   weight: number;
@@ -55,6 +57,7 @@ export type RecommendationResponse = {
   mode: "preference" | "normal";
   eligible_count: number;
   conditional_count: number;
+  subject_filtered_count: number;
   bucket_counts: Record<string, number>;
   recommendations: ScoredRecommendation[];
   also_offered_no_cutoff_count: number;
@@ -65,6 +68,7 @@ export type RecommendationRequest = {
   z_score: number;
   district_code: string;
   stream_code: string;
+  subjects: SubjectInput[];
   preferred_university_codes: string[];
   interests: string | null;
 };

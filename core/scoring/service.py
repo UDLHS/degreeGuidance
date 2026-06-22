@@ -138,6 +138,7 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
         mode="preference" if profile.has_preferences else "normal",
         eligible_count=elig.eligible_count,
         conditional_count=elig.conditional_count,
+        subject_filtered_count=elig.subject_filtered_count,
         bucket_counts=dict(Counter(s.bucket for s in scored)),
         recommendations=recommendations,
         also_offered_no_cutoff_count=also_count,

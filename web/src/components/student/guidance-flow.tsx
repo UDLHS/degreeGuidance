@@ -7,10 +7,13 @@ import type {
   ReferenceData,
   RecommendationRequest,
   RecommendationResponse,
+  SubjectInput,
 } from "@/lib/guidance-types";
 
 const ACCENT = "#2b5fd0";
-const STEP_LABELS = ["Z-score", "District", "Stream", "Preferences"];
+const STEP_LABELS = ["Z-score", "District", "Stream", "Subjects", "Preferences"];
+const TOTAL_STEPS = STEP_LABELS.length;
+const GRADES: SubjectInput["grade"][] = ["A", "B", "C", "S"];
 
 // The 6 real A/L exam streams a student actually sits. ICT is a navigation
 // category on the courses side (masterplan §3), not something a student
@@ -64,6 +67,7 @@ export function GuidanceFlow() {
   const [zScore, setZScore] = useState(1.5);
   const [districtCode, setDistrictCode] = useState<string | null>(null);
   const [streamCode, setStreamCode] = useState<string | null>(null);
+  const [subjects, setSubjects] = useState<(SubjectInput | null)[]>([null, null, null]);
   const [preferredUnis, setPreferredUnis] = useState<string[]>([]);
   const [interests, setInterests] = useState("");
 
@@ -90,13 +94,15 @@ export function GuidanceFlow() {
   }
 
   async function submit() {
-    if (!districtCode || !streamCode) return;
+    const filledSubjects = subjects.filter((s): s is SubjectInput => s !== null);
+    if (!districtCode || !streamCode || filledSubjects.length !== 3) return;
     setLoading(true);
     setSubmitError(null);
     const payload: RecommendationRequest = {
       z_score: Math.round(zScore * 100) / 100,
       district_code: districtCode,
       stream_code: streamCode,
+      subjects: filledSubjects,
       preferred_university_codes: preferredUnis,
       interests: interests.trim() || null,
     };
@@ -126,7 +132,8 @@ export function GuidanceFlow() {
   function next() {
     if (step === 1 && !districtCode) return;
     if (step === 2 && !streamCode) return;
-    if (step < 3) {
+    if (step === 3 && subjects.filter(Boolean).length !== 3) return;
+    if (step < TOTAL_STEPS - 1) {
       window.scrollTo(0, 0);
       setStep(step + 1);
     } else {
@@ -145,9 +152,13 @@ export function GuidanceFlow() {
     setStep(0);
   }
 
-  const stepValid = !((step === 1 && !districtCode) || (step === 2 && !streamCode));
+  const stepValid = !(
+    (step === 1 && !districtCode) ||
+    (step === 2 && !streamCode) ||
+    (step === 3 && subjects.filter(Boolean).length !== 3)
+  );
   const isResults = view === "results";
-  const progressPct = isResults ? 100 : ((step + 1) / 4) * 100;
+  const progressPct = isResults ? 100 : ((step + 1) / TOTAL_STEPS) * 100;
   const districtName = reference?.districts.find((d) => d.code === districtCode)?.name_en ?? "";
   const streamName = examStreams.find((s) => s.code === streamCode)?.name_en ?? "";
 
@@ -253,6 +264,14 @@ export function GuidanceFlow() {
                   />
                 )}
                 {step === 3 && (
+                  <SubjectsStep
+                    stream={examStreams.find((s) => s.code === streamCode) ?? null}
+                    subjects={subjects}
+                    onChange={setSubjects}
+                    accent={ACCENT}
+                  />
+                )}
+                {step === 4 && (
                   <PreferencesStep
                     universities={reference.universities}
                     selectedUnis={preferredUnis}
@@ -284,7 +303,7 @@ export function GuidanceFlow() {
                       opacity: loading ? 0.7 : 1,
                     }}
                   >
-                    {loading ? "Finding matches…" : step === 3 ? "See my matches →" : "Continue"}
+                    {loading ? "Finding matches…" : step === TOTAL_STEPS - 1 ? "See my matches →" : "Continue"}
                   </button>
                 </div>
               </>
@@ -311,7 +330,7 @@ function StepKicker({ step, accent }: { step: number; accent: string }) {
       className="mb-[14px] text-[13px] font-bold uppercase tracking-[1.5px]"
       style={{ color: accent }}
     >
-      Step {step} of 4
+      Step {step} of {TOTAL_STEPS}
     </div>
   );
 }
@@ -478,6 +497,100 @@ function StreamStep({
   );
 }
 
+function SubjectsStep({
+  stream,
+  subjects,
+  onChange,
+  accent,
+}: {
+  stream: ReferenceData["streams"][number] | null;
+  subjects: (SubjectInput | null)[];
+  onChange: (next: (SubjectInput | null)[]) => void;
+  accent: string;
+}) {
+  const options = stream?.subjects ?? [];
+  const pickedNames = new Set(subjects.filter((s): s is SubjectInput => s !== null).map((s) => s.subject));
+
+  function setSlotSubject(i: number, subject: string) {
+    const next = [...subjects];
+    next[i] = subject ? { subject, grade: next[i]?.grade ?? "C" } : null;
+    onChange(next);
+  }
+  function setSlotGrade(i: number, grade: SubjectInput["grade"]) {
+    const next = [...subjects];
+    if (next[i]) next[i] = { ...next[i]!, grade };
+    onChange(next);
+  }
+
+  return (
+    <section>
+      <StepKicker step={4} accent={accent} />
+      <h1 className="mb-3 font-[family-name:var(--font-newsreader)] text-5xl font-medium leading-[1.08] tracking-[-.5px]">
+        What were your 3 A/L subjects?
+      </h1>
+      <p className="mb-9 max-w-[560px] text-[17px] leading-[1.55] text-[#5b6b85]">
+        Many degrees require specific subjects beyond your stream — for example, Engineering
+        requires Chemistry specifically, while a Physics+Maths+ICT combination doesn&apos;t
+        qualify. This lets us check exactly, not just by stream.
+      </p>
+      {!options.length ? (
+        <p className="text-sm text-[#b4485f]">Pick a stream first to see its subject list.</p>
+      ) : (
+        <div className="flex flex-col gap-[14px]">
+          {[0, 1, 2].map((i) => {
+            const current = subjects[i];
+            const available = options.filter(
+              (o) => o === current?.subject || !pickedNames.has(o),
+            );
+            return (
+              <div
+                key={i}
+                className="flex flex-wrap items-center gap-3 rounded-2xl border-[1.5px] border-[#e3e9f2] bg-white p-4"
+              >
+                <span className="w-6 text-sm font-bold text-[#9aa7be]">{i + 1}.</span>
+                <select
+                  value={current?.subject ?? ""}
+                  onChange={(e) => setSlotSubject(i, e.target.value)}
+                  className="min-w-[220px] flex-1 rounded-xl border-[1.5px] border-[#e3e9f2] bg-white px-3 py-[10px] text-[15px]"
+                >
+                  <option value="">Select subject…</option>
+                  {available.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-[6px]">
+                  {GRADES.map((g) => {
+                    const sel = current?.grade === g;
+                    return (
+                      <button
+                        key={g}
+                        type="button"
+                        disabled={!current}
+                        onClick={() => setSlotGrade(i, g)}
+                        className="h-9 w-9 rounded-lg border-[1.5px] text-[14px] font-bold disabled:opacity-40"
+                        style={{
+                          borderColor: sel ? accent : "#e3e9f2",
+                          background: sel ? accent : "#fff",
+                          color: sel ? "#fff" : "#44546f",
+                        }}
+                      >
+                        {g}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="mt-4 text-[13px] text-[#9aa7be]">Grades: A (highest) · B · C · S (ordinary pass)</p>
+    </section>
+  );
+}
+
 function PreferencesStep({
   universities,
   selectedUnis,
@@ -497,7 +610,7 @@ function PreferencesStep({
     <section>
       <div className="mb-[14px] flex items-baseline gap-3">
         <div className="text-[13px] font-bold uppercase tracking-[1.5px]" style={{ color: accent }}>
-          Step 4 of 4
+          Step {TOTAL_STEPS} of {TOTAL_STEPS}
         </div>
         <div className="text-[13px] font-semibold text-[#9aa7be]">Optional</div>
       </div>
