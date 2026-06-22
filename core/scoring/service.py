@@ -75,6 +75,7 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
             district_code=req.district_code,
             stream_code=req.stream_code,
             exam_year=req.exam_year,
+            subjects=req.subjects,
         ),
     )
     config = await load_active_config(session)

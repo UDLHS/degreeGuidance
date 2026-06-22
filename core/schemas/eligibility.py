@@ -18,6 +18,23 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+_VALID_GRADES = {"F", "S", "C", "B", "A"}
+
+
+class SubjectInput(BaseModel):
+    """One A/L subject + grade. Grades: F(ail)/S(ordinary pass)/C(redit)/B/A."""
+
+    subject: str = Field(..., min_length=1, max_length=100)
+    grade: str = Field(..., min_length=1, max_length=1)
+
+    @field_validator("grade")
+    @classmethod
+    def _validate_grade(cls, v: str) -> str:
+        v = v.strip().upper()
+        if v not in _VALID_GRADES:
+            raise ValueError(f"grade must be one of {sorted(_VALID_GRADES)}, got {v!r}")
+        return v
+
 
 class EligibilityRequest(BaseModel):
     z_score: float = Field(
@@ -43,6 +60,17 @@ class EligibilityRequest(BaseModel):
         description=(
             "A/L exam year (NOT the handbook publication year). "
             "Defaults to the most recent year loaded in z_score_cutoffs."
+        ),
+    )
+    subjects: list[SubjectInput] = Field(
+        ...,
+        min_length=3,
+        max_length=3,
+        description=(
+            "The student's 3 A/L subjects + grades. Required: many courses gate on "
+            "exact subject combinations beyond stream (e.g. Engineering requires "
+            "Chemistry specifically; a Physics+Maths+ICT student doesn't qualify "
+            "even though they're in the Physical Science stream). See handbook §2.2."
         ),
     )
 
@@ -92,4 +120,12 @@ class EligibilityResponse(BaseModel):
     eligible_count: int
     conditional_count: int
     total_count: int
+    subject_filtered_count: int = Field(
+        default=0,
+        description=(
+            "Courses that cleared the stream + Z-score cutoff but were excluded "
+            "because the student's exact subject combination doesn't satisfy the "
+            "course's §2.2 prerequisite (e.g. Engineering requires Chemistry)."
+        ),
+    )
     results: list[EligibilityResultItem]

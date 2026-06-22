@@ -31,12 +31,16 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.eligibility.arts_basket import check_arts_eligibility
+from core.eligibility.subject_requirements import SubjectResult, evaluate_subject_rule
 from core.models.eligibility import EligibilityAudit
 from core.schemas.eligibility import (
     EligibilityRequest,
     EligibilityResponse,
     EligibilityResultItem,
 )
+
+ARTS_COURSE_NUMBER = "019"
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +120,42 @@ async def _resolve_stream_id(session: AsyncSession, code: str) -> int:
     return int(row.stream_id)
 
 
+async def _fetch_subject_rules(
+    session: AsyncSession, course_numbers: set[str]
+) -> dict[str, dict]:
+    """Bulk-fetch baseline (exam_year IS NULL) subject_rule trees for the given
+    course_numbers, in one query (avoids N+1 across a result set)."""
+    if not course_numbers:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT course_number, subject_rule FROM course_requirements "
+                "WHERE course_number = ANY(:numbers) AND exam_year IS NULL"
+            ),
+            {"numbers": list(course_numbers)},
+        )
+    ).all()
+    return {r.course_number: r.subject_rule for r in rows}
+
+
+def _passes_subject_requirement(
+    course_number: str | None,
+    subjects: list[SubjectResult],
+    rules_by_number: dict[str, dict],
+) -> bool:
+    """True if the course is ungated, or the student's subjects satisfy its
+    curated rule. False only when a rule exists and is NOT satisfied -- a
+    course with no curated rule is always ungated by design (masterplan
+    incremental-curation principle, see migration 24)."""
+    if course_number == ARTS_COURSE_NUMBER:
+        return check_arts_eligibility(subjects)
+    rule = rules_by_number.get(course_number) if course_number else None
+    if rule is None:
+        return True
+    return evaluate_subject_rule(rule, subjects)
+
+
 async def _get_max_year(session: AsyncSession) -> int | None:
     row = (
         await session.execute(text("SELECT MAX(year) AS max_year FROM z_score_cutoffs"))
@@ -167,11 +207,20 @@ async def evaluate_eligibility(
         )
     ).mappings().all()
 
+    student_subjects = [SubjectResult(subject=s.subject, grade=s.grade) for s in req.subjects]
+    course_numbers = {r["course_number"] for r in rows if r["course_number"]}
+    rules_by_number = await _fetch_subject_rules(session, course_numbers)
+
     results: list[EligibilityResultItem] = []
     eligible_count = 0
     conditional_count = 0
+    subject_filtered_count = 0
 
     for r in rows:
+        if not _passes_subject_requirement(r["course_number"], student_subjects, rules_by_number):
+            subject_filtered_count += 1
+            continue
+
         cutoff = float(r["cutoff_z_score"])
         margin = round(req.z_score - cutoff, 4)
         conditional = bool(r["requires_aptitude_test"])
@@ -212,6 +261,7 @@ async def evaluate_eligibility(
         eligible_count=eligible_count,
         conditional_count=conditional_count,
         total_count=len(results),
+        subject_filtered_count=subject_filtered_count,
         results=results,
     )
 

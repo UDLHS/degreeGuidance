@@ -26,19 +26,64 @@ import yaml
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.eligibility.engine import MARGINAL_THRESHOLD, evaluate_eligibility
-from core.schemas.eligibility import EligibilityRequest
+from core.eligibility.arts_basket import check_arts_eligibility
+from core.eligibility.engine import (
+    ARTS_COURSE_NUMBER,
+    MARGINAL_THRESHOLD,
+    evaluate_eligibility,
+)
+from core.eligibility.subject_requirements import SubjectResult, evaluate_subject_rule
+from core.schemas.eligibility import EligibilityRequest, SubjectInput
 
 _FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "eligibility_cases.yaml"
 _CASES = yaml.safe_load(_FIXTURE.read_text())["cases"]
+
+# Per-stream subject sets used to drive this fixture suite. This suite's job is
+# to verify stream + Z-score + district arithmetic (cross-checked against an
+# independent reference query) -- subject-combination correctness has its own
+# dedicated test suites (test_subject_requirements.py, test_arts_basket.py,
+# test_course_requirements_seed.py). High grades minimise incidental subject
+# exclusions so this suite stays focused on what it's actually testing; the
+# reference query below applies the SAME subject filter as the engine, so any
+# exclusion that does occur is still required to match on both sides.
+_STREAM_SUBJECTS: dict[str, list[SubjectInput]] = {
+    "BIO_SCIENCE": [
+        SubjectInput(subject="Biology", grade="A"),
+        SubjectInput(subject="Chemistry", grade="A"),
+        SubjectInput(subject="Physics", grade="A"),
+    ],
+    "PHYSICAL_SCIENCE": [
+        SubjectInput(subject="Chemistry", grade="A"),
+        SubjectInput(subject="Combined Mathematics", grade="A"),
+        SubjectInput(subject="Physics", grade="A"),
+    ],
+    "COMMERCE": [
+        SubjectInput(subject="Business Studies", grade="A"),
+        SubjectInput(subject="Economics", grade="A"),
+        SubjectInput(subject="Accounting", grade="A"),
+    ],
+    "ARTS": [
+        SubjectInput(subject="Economics", grade="A"),
+        SubjectInput(subject="Geography", grade="A"),
+        SubjectInput(subject="History", grade="A"),
+    ],
+}
 
 
 def _case_id(case: dict) -> str:
     return f"{case['category']}::{case['id']}"
 
 
-async def _reference(session: AsyncSession, z: float, district: str, stream: str, year: int):
-    """Independent recomputation of the eligible set (plain JOIN form)."""
+async def _reference(
+    session: AsyncSession, z: float, district: str, stream: str, year: int,
+    subjects: list[SubjectInput],
+):
+    """Independent recomputation of the eligible set (plain JOIN form).
+
+    Applies the same subject-requirement filter as the engine -- subject-rule
+    *correctness* is verified by its own dedicated suites; here the point is
+    only that both code paths apply it identically, so a real divergence in
+    the stream/Z-score JOIN math still surfaces."""
     did = (
         await session.execute(text("SELECT district_id FROM districts WHERE code = :c"), {"c": district})
     ).scalar_one_or_none()
@@ -53,6 +98,7 @@ async def _reference(session: AsyncSession, z: float, district: str, stream: str
             text(
                 """
                 SELECT zc.course_code,
+                       c.course_number,
                        zc.z_score,
                        c.requires_aptitude_test
                 FROM z_score_cutoffs zc
@@ -70,8 +116,33 @@ async def _reference(session: AsyncSession, z: float, district: str, stream: str
         )
     ).mappings().all()
 
+    course_numbers = {r["course_number"] for r in rows if r["course_number"]}
+    rules_by_number = {}
+    if course_numbers:
+        rule_rows = (
+            await session.execute(
+                text(
+                    "SELECT course_number, subject_rule FROM course_requirements "
+                    "WHERE course_number = ANY(:numbers) AND exam_year IS NULL"
+                ),
+                {"numbers": list(course_numbers)},
+            )
+        ).all()
+        rules_by_number = {rr.course_number: rr.subject_rule for rr in rule_rows}
+
+    student_subjects = [SubjectResult(subject=s.subject, grade=s.grade) for s in subjects]
+
     expected = {}
     for r in rows:
+        course_number = r["course_number"]
+        if course_number == ARTS_COURSE_NUMBER:
+            if not check_arts_eligibility(student_subjects):
+                continue
+        else:
+            rule = rules_by_number.get(course_number)
+            if rule is not None and not evaluate_subject_rule(rule, student_subjects):
+                continue
+
         cutoff = float(r["z_score"])
         margin = round(z - cutoff, 4)
         expected[r["course_code"]] = {
@@ -130,8 +201,10 @@ async def test_eligibility_case(case: dict, db_session: AsyncSession):
     exam_year = inp.get("exam_year")
     pins = case.get("assert", {})
 
+    subjects = _STREAM_SUBJECTS[stream]
     req = EligibilityRequest(
-        z_score=z, district_code=district, stream_code=stream, exam_year=exam_year
+        z_score=z, district_code=district, stream_code=stream, exam_year=exam_year,
+        subjects=subjects,
     )
     resp = await evaluate_eligibility(db_session, req)
 
@@ -163,7 +236,7 @@ async def test_eligibility_case(case: dict, db_session: AsyncSession):
     # ---- cross-check against the independent reference (THE oracle) ----
     # (skip only for missing-year cases, which the engine returns empty by design)
     if not pins.get("expect_empty"):
-        expected = await _reference(db_session, z, district, stream, used_year)
+        expected = await _reference(db_session, z, district, stream, used_year, subjects)
         assert set(by_code) == set(expected), (
             f"set mismatch: only-engine={set(by_code) - set(expected)}, "
             f"only-ref={set(expected) - set(by_code)}"

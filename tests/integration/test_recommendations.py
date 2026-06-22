@@ -9,7 +9,16 @@ from __future__ import annotations
 
 from httpx import AsyncClient
 
-BASE = {"z_score": 2.6, "district_code": "COLOMBO", "stream_code": "BIO_SCIENCE"}
+BASE = {
+    "z_score": 2.6,
+    "district_code": "COLOMBO",
+    "stream_code": "BIO_SCIENCE",
+    "subjects": [
+        {"subject": "Biology", "grade": "A"},
+        {"subject": "Chemistry", "grade": "A"},
+        {"subject": "Physics", "grade": "A"},
+    ],
+}
 
 
 async def test_normal_mode_ranks_by_zmargin(client: AsyncClient):
@@ -54,7 +63,7 @@ async def test_also_offered_no_cutoff_shape(client: AsyncClient):
 async def test_unknown_district_is_422(client: AsyncClient):
     r = await client.post(
         "/api/v1/recommendations",
-        json={"z_score": 2.6, "district_code": "NOWHERE", "stream_code": "BIO_SCIENCE"},
+        json={**BASE, "district_code": "NOWHERE"},
     )
     assert r.status_code == 422
 

@@ -19,10 +19,20 @@ async def test_health(client: AsyncClient):
     assert r.json() == {"status": "ok"}
 
 
+_BIO_SUBJECTS = [
+    {"subject": "Biology", "grade": "C"},
+    {"subject": "Chemistry", "grade": "C"},
+    {"subject": "Physics", "grade": "S"},
+]
+
+
 async def test_happy_path_shape(client: AsyncClient):
     r = await client.post(
         ENDPOINT,
-        json={"z_score": 2.38, "district_code": "COLOMBO", "stream_code": "BIO_SCIENCE"},
+        json={
+            "z_score": 2.38, "district_code": "COLOMBO", "stream_code": "BIO_SCIENCE",
+            "subjects": _BIO_SUBJECTS,
+        },
     )
     assert r.status_code == 200
     body = r.json()
@@ -44,7 +54,10 @@ async def test_happy_path_shape(client: AsyncClient):
 async def test_lowercase_codes_normalize(client: AsyncClient):
     r = await client.post(
         ENDPOINT,
-        json={"z_score": 2.38, "district_code": "colombo", "stream_code": "bio_science"},
+        json={
+            "z_score": 2.38, "district_code": "colombo", "stream_code": "bio_science",
+            "subjects": _BIO_SUBJECTS,
+        },
     )
     assert r.status_code == 200
 
@@ -52,7 +65,10 @@ async def test_lowercase_codes_normalize(client: AsyncClient):
 async def test_unknown_district_is_422(client: AsyncClient):
     r = await client.post(
         ENDPOINT,
-        json={"z_score": 2.0, "district_code": "ATLANTIS", "stream_code": "BIO_SCIENCE"},
+        json={
+            "z_score": 2.0, "district_code": "ATLANTIS", "stream_code": "BIO_SCIENCE",
+            "subjects": _BIO_SUBJECTS,
+        },
     )
     assert r.status_code == 422
 
@@ -60,7 +76,10 @@ async def test_unknown_district_is_422(client: AsyncClient):
 async def test_unknown_stream_is_422(client: AsyncClient):
     r = await client.post(
         ENDPOINT,
-        json={"z_score": 2.0, "district_code": "COLOMBO", "stream_code": "WIZARDRY"},
+        json={
+            "z_score": 2.0, "district_code": "COLOMBO", "stream_code": "WIZARDRY",
+            "subjects": _BIO_SUBJECTS,
+        },
     )
     assert r.status_code == 422
 
@@ -69,6 +88,17 @@ async def test_unknown_stream_is_422(client: AsyncClient):
 async def test_z_score_out_of_range_is_422(client: AsyncClient, bad_z: float):
     r = await client.post(
         ENDPOINT,
-        json={"z_score": bad_z, "district_code": "COLOMBO", "stream_code": "BIO_SCIENCE"},
+        json={
+            "z_score": bad_z, "district_code": "COLOMBO", "stream_code": "BIO_SCIENCE",
+            "subjects": _BIO_SUBJECTS,
+        },
+    )
+    assert r.status_code == 422
+
+
+async def test_missing_subjects_is_422(client: AsyncClient):
+    r = await client.post(
+        ENDPOINT,
+        json={"z_score": 2.0, "district_code": "COLOMBO", "stream_code": "BIO_SCIENCE"},
     )
     assert r.status_code == 422
