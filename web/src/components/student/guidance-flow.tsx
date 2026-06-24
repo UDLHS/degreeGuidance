@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { ChatPanel } from "@/components/student/chat-panel";
 import { ResultsView } from "@/components/student/results-view";
 import type {
   ReferenceData,
@@ -311,14 +312,24 @@ export function GuidanceFlow() {
           </div>
         </main>
       ) : results ? (
-        <ResultsView
-          results={results}
-          zScore={zScore}
-          districtName={districtName}
-          streamName={streamName}
-          onEdit={edit}
-          accent={ACCENT}
-        />
+        <>
+          <ResultsView
+            results={results}
+            zScore={zScore}
+            districtName={districtName}
+            streamName={streamName}
+            onEdit={edit}
+            accent={ACCENT}
+          />
+          <ChatPanel
+            context={{
+              z_score: zScore,
+              district_code: districtCode ?? undefined,
+              stream_code: streamCode ?? undefined,
+              subjects: subjects.filter((s): s is SubjectInput => s !== null),
+            }}
+          />
+        </>
       ) : null}
     </div>
   );

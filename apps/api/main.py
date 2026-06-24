@@ -12,7 +12,9 @@ from apps.api.routers import (
     admin_aliases,
     admin_courses,
     admin_ingestions,
+    admin_requirements,
     auth,
+    chat,
     eligibility,
     recommendations,
     reference,
@@ -24,6 +26,7 @@ app = FastAPI(
     description="Sri Lankan university admissions guidance — eligibility + admin auth.",
 )
 
+app.include_router(chat.router)
 app.include_router(eligibility.router)
 app.include_router(recommendations.router)
 app.include_router(reference.router)
@@ -31,6 +34,7 @@ app.include_router(auth.router)
 app.include_router(admin_aliases.router)
 app.include_router(admin_courses.router)
 app.include_router(admin_ingestions.router)
+app.include_router(admin_requirements.router)
 
 
 @app.get("/health", tags=["meta"])

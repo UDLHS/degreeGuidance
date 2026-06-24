@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Gemini API (RAG + chatbot)
     gemini_api_key: str = Field(default="", description="Google Gemini API key")
     gemini_embedding_model: str = Field(default="models/gemini-embedding-001")
-    gemini_chat_model: str = Field(default="models/gemini-2.5-flash")
+    gemini_chat_model: str = Field(default="models/gemini-3.1-flash-lite")
     gemini_embedding_dim: int = Field(default=768)
 
 
