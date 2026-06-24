@@ -21,6 +21,7 @@ dependencies = [
     "arq>=0.28.0",
     "pdfplumber>=0.11.9",
     "google-genai>=1.0.0",
+    "ddgs>=9.14.4",
 ]
 
 [dependency-groups]

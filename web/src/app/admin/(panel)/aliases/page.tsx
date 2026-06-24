@@ -60,9 +60,11 @@ export default function AliasesPage() {
   const [form, setForm] = useState<Form>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [dialogErr, setDialogErr] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     const p = new URLSearchParams({ limit: "100" });
     if (q.trim()) p.set("q", q.trim());
     if (verified !== "all") p.set("is_verified", verified);
@@ -71,6 +73,8 @@ export default function AliasesPage() {
       const d = await res.json();
       setItems(d.items ?? []);
       setTotal(d.total ?? 0);
+    } else {
+      setFetchError(`Failed to load aliases (HTTP ${res.status}) — is the API running?`);
     }
     setLoading(false);
   }, [q, verified]);
@@ -179,6 +183,12 @@ export default function AliasesPage() {
           {loading ? "Loading…" : "Refresh"}
         </Button>
       </div>
+
+      {fetchError ? (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {fetchError}
+        </p>
+      ) : null}
 
       <div className="rounded-lg border">
         <Table>

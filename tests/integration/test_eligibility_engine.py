@@ -140,7 +140,7 @@ async def _reference(
                 continue
         else:
             rule = rules_by_number.get(course_number)
-            if rule is not None and not evaluate_subject_rule(rule, student_subjects):
+            if rule is not None and not evaluate_subject_rule(rule, student_subjects, stream):
                 continue
 
         cutoff = float(r["z_score"])

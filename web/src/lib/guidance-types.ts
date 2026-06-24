@@ -37,6 +37,7 @@ export type ScoredRecommendation = {
   status: "eligible" | "conditional";
   is_marginal: boolean;
   available_mediums: string[];
+  eligible_stream_codes: string[];
   total_score: number;
   bucket: "safe" | "ambitious" | "consider";
   breakdown: DimensionBreakdownItem[];

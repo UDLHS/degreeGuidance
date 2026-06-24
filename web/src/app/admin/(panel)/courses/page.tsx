@@ -85,9 +85,11 @@ export default function CoursesPage() {
   const [form, setForm] = useState<Form>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [dialogErr, setDialogErr] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     const p = new URLSearchParams({ limit: "200" });
     if (q.trim()) p.set("q", q.trim());
     if (active !== "all") p.set("is_active", active);
@@ -97,6 +99,8 @@ export default function CoursesPage() {
       const d = await res.json();
       setItems(d.items ?? []);
       setTotal(d.total ?? 0);
+    } else {
+      setFetchError(`Failed to load courses (HTTP ${res.status}) — is the API running?`);
     }
     setLoading(false);
   }, [q, active, basis]);
@@ -238,6 +242,12 @@ export default function CoursesPage() {
           {loading ? "Loading…" : "Refresh"}
         </Button>
       </div>
+
+      {fetchError ? (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {fetchError}
+        </p>
+      ) : null}
 
       <div className="rounded-lg border">
         <Table>

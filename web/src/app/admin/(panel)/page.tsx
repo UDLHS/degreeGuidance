@@ -7,6 +7,7 @@ const CARDS = [
   { href: "/admin/ingestions", title: "Ingestions", desc: "Upload handbooks, review extractions, promote cutoffs." },
   { href: "/admin/aliases", title: "Aliases", desc: "Verify and correct OCR-label → course mappings." },
   { href: "/admin/courses", title: "Courses", desc: "Edit names, flags, and onboard new courses." },
+  { href: "/admin/requirements", title: "Subject Rules", desc: "Review curated §2.2 eligibility rules with source citations." },
 ];
 
 export default async function DashboardPage() {

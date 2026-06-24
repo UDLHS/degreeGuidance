@@ -448,23 +448,51 @@ REQUIREMENTS: list[dict] = [
     {
         "course_number": "030",  # Urban Informatics and Planning
         "source_section": "2.2.8.5",
-        "subject_rule": {"type": "count_from_list", "subjects": ["Combined Mathematics", "Chemistry", "Physics", "Biology"], "count": 3, "min_grade": "S"},
-        "notes": "Approximated: also accepts 1-2 from {Combined Maths, Chemistry, Physics, Biology} plus the rest from a long secondary list (Accounting, Agri Sci, Business Studies, Business Stats, ICT, Economics, Political Science, Geography, Higher Maths, Logic, Maths, Biosystems Tech, SFT, Eng Tech) -- needs admin review for full precision.",
+        "subject_rule": {"type": "or", "conditions": [
+            {"type": "count_from_list", "subjects": ["Combined Mathematics", "Chemistry", "Physics", "Biology"], "count": 3, "min_grade": "S"},
+            {"type": "and", "conditions": [
+                {"type": "count_from_list", "subjects": ["Combined Mathematics", "Chemistry", "Physics", "Biology"], "count": 2, "min_grade": "S"},
+                {"type": "count_from_list", "subjects": ["Accounting", "Geography", "Agricultural Science", "Higher Mathematics", "Business Studies", "Logic & Scientific Method", "Business Statistics", "Mathematics", "Information & Communication Technology", "Biosystems Technology", "Economics", "Science for Technology", "Political Science", "Engineering Technology"], "count": 1, "min_grade": "S"},
+            ]},
+            {"type": "and", "conditions": [
+                {"type": "count_from_list", "subjects": ["Combined Mathematics", "Chemistry", "Physics", "Biology"], "count": 1, "min_grade": "S"},
+                {"type": "count_from_list", "subjects": ["Accounting", "Geography", "Agricultural Science", "Higher Mathematics", "Business Studies", "Logic & Scientific Method", "Business Statistics", "Mathematics", "Information & Communication Technology", "Biosystems Technology", "Economics", "Science for Technology", "Political Science", "Engineering Technology"], "count": 2, "min_grade": "S"},
+            ]},
+        ]},
         "ol_requirements": "At least Very Good Pass (B) in English; Credit Pass (C) in Mathematics.",
     },
     {
         "course_number": "023",  # Architecture
         "source_section": "2.2.8.6",
-        "subject_rule": {"type": "one_of_min_grade", "subjects": ["Art", "Higher Mathematics", "Combined Mathematics", "Geography", "Chemistry", "Biology", "Physics"], "min_grade": "S"},
-        "notes": "Approximated: also requires 2 more subjects from a ~30-item list (most other A/L subjects) -- needs admin review for full precision. Aptitude Test required (already captured via requires_aptitude_test).",
+        "subject_rule": {"type": "and", "conditions": [
+            {"type": "one_of_min_grade", "subjects": ["Art", "Chemistry", "Higher Mathematics", "Biology", "Combined Mathematics", "Physics", "Geography"], "min_grade": "S"},
+            {"type": "count_from_list", "subjects": [
+                "Art", "Chemistry", "Higher Mathematics", "Biology", "Combined Mathematics", "Physics", "Geography",
+                "Accounting", "Mathematics", "Hindu Civilization", "Sanskrit", "Business Statistics", "German",
+                "Islamic Civilization", "Arabic", "Greek & Roman Civilization", "Political Science", "English",
+                "Sinhala", "Communication & Media Studies", "Christian Civilization", "Hindi", "Buddhist Civilization",
+                "Home Economics", "Chinese", "Logic & Scientific Method", "History", "Business Studies", "Japanese",
+                "Pali", "French", "Tamil", "Agricultural Science",
+            ], "count": 3, "min_grade": "S"},
+        ]},
+        "notes": "(i) at least 1 of {Art,Chemistry,HigherMaths,Biology,CombMaths,Physics,Geography}, (ii) the other 2 from a ~26-item secondary list -- encoded as >=1 anchor + all 3 drawn from the combined pool. Aptitude Test required (already captured via requires_aptitude_test).",
         "ol_requirements": "Ordinary Pass (S) in English; Credit (C) in Mathematics at O/L or Ordinary Pass (S) at A/L.",
     },
     {"course_number": "034", "source_section": "2.2.8.7", "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"}, "ol_requirements": "Credit (C) in English, Mathematics, Science."},  # Fashion Design & Product Development
     {
         "course_number": "097",  # Landscape Architecture
         "source_section": "2.2.8.8",
-        "subject_rule": {"type": "one_of_min_grade", "subjects": ["Art", "Biology", "Chemistry", "Combined Mathematics", "Geography", "Higher Mathematics", "Physics", "Agricultural Science"], "min_grade": "S"},
-        "notes": "Approximated: also requires other subjects from a long secondary list -- needs admin review for full precision. Aptitude Test required.",
+        "subject_rule": {"type": "and", "conditions": [
+            {"type": "one_of_min_grade", "subjects": ["Art", "Geography", "Biology", "Higher Mathematics", "Chemistry", "Physics", "Combined Mathematics", "Agricultural Science"], "min_grade": "S"},
+            {"type": "count_from_list", "subjects": [
+                "Art", "Geography", "Biology", "Higher Mathematics", "Chemistry", "Physics", "Combined Mathematics", "Agricultural Science",
+                "Accounting", "Hindi", "Arabic", "Hindu Civilization", "Buddhist Civilization", "History", "Business Statistics",
+                "Home Economics", "Business Studies", "Islamic Civilization", "Chinese", "Japanese", "Greek & Roman Civilization",
+                "Logic & Scientific Method", "Economics", "Political Science", "Mathematics", "Pali", "English", "Sanskrit", "French",
+                "Sinhala", "German", "Communication & Media Studies", "Tamil", "Information & Communication Technology", "Christian Civilization",
+            ], "count": 3, "min_grade": "S"},
+        ]},
+        "notes": "(i) at least 1 of {Art,Geography,Biology,HigherMaths,Chemistry,Physics,CombMaths,AgriSci}, (ii) the other 2 from a ~27-item secondary list -- same encoding pattern as Architecture. Aptitude Test required.",
         "ol_requirements": "Ordinary Pass (S) in English; Credit (C) in Mathematics at O/L or Ordinary Pass (S) at A/L.",
     },
     {"course_number": "024", "source_section": "2.2.8.9", "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"}, "ol_requirements": "Ordinary Pass (S) in English; Credit (C) in Mathematics at O/L or Ordinary Pass (S) at A/L; Credit (C) in Science."},  # Design
@@ -562,13 +590,17 @@ REQUIREMENTS: list[dict] = [
         "course_number": "092",  # Tourism & Hospitality Management
         "source_section": "2.2.8.22",
         "subject_rule": {"type": "or", "conditions": [
-            {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
             {"type": "and", "conditions": [
+                {"type": "stream_is", "streams": ["COMMERCE", "BIO_SCIENCE", "PHYSICAL_SCIENCE"]},
+                {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+            ]},
+            {"type": "and", "conditions": [
+                {"type": "stream_is", "streams": ["ARTS"]},
                 {"type": "one_of_min_grade", "subjects": ["Economics", "Geography", "Business Statistics"], "min_grade": "S"},
                 {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
             ]},
         ]},
-        "notes": "STREAM CAVEAT: handbook restricts path (i) to Commerce/BioSci/PhysSci; path (ii) is Arts-stream with at least 1 of {Economics,Geography,Business Statistics} + 2 more Arts subjects (per 2.2.1.1 rules). Approximated here as any_n -- needs admin review.",
+        "notes": "(i) Commerce/BioSci/PhysSci: any 3 subjects, no extra gate. (ii) Arts: >=1 of {Economics,Geography,Business Statistics} + 2 more Arts subjects (per 2.2.1.1). Stream-conditional via stream_is.",
     },
     {
         "course_number": "096",  # Information Systems
@@ -582,15 +614,12 @@ REQUIREMENTS: list[dict] = [
     {
         "course_number": "098",  # Translation Studies
         "source_section": "2.2.8.24",
-        "subject_rule": {"type": "or", "conditions": [
-            {"type": "and", "conditions": [
-                {"type": "one_of_min_grade", "subjects": ["Sinhala", "Tamil"], "min_grade": "C"},
-                {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
-            ]},
-            {"type": "subject_min_grade", "subject": "English", "min_grade": "S"},
+        "subject_rule": {"type": "and", "conditions": [
+            {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+            {"type": "one_of_min_grade", "subjects": ["Sinhala", "Tamil"], "min_grade": "C"},
         ]},
-        "ol_requirements": "B grade in (Sinhala Language & Lit. + English) or (Tamil Language & Lit. + English).",
-        "notes": "Approximated -- the real rule combines an A/L Sinhala/Tamil-Credit condition with an O/L language-pair OR an A/L English-S alternative; needs admin review for exact precision.",
+        "ol_requirements": "ADDITIONALLY (on top of the A/L Sinhala/Tamil-C gate): (i) B grade in Sinhala Language & Lit. + English, or Tamil Language & Lit. + English, at O/L -- OR (ii) at least S grade in English at A/L.",
+        "notes": "CORRECTED: the C-grade in Sinhala-or-Tamil is mandatory always (was previously, incorrectly, modeled as one of two alternate paths with an A/L-English-S path that bypassed it). The (i)/(ii) branch is a SEPARATE additional requirement layered on top, mixing O/L (uncheckable here) and A/L conditions -- only the A/L English-S half of that branch is enforceable by this engine; (i) needs O/L data, deferred to the RAG/chat layer per the project's O-Level decision.",
     },
     {"course_number": "100", "source_section": "2.2.8.25", "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"}, "notes": "Plus Aptitude Test (Film & Television skills)."},  # Film & Television Studies
     {
@@ -623,11 +652,17 @@ REQUIREMENTS: list[dict] = [
         "course_number": "107",  # Food Business Management
         "source_section": "2.2.8.29",
         "subject_rule": {"type": "or", "conditions": [
-            {"type": "count_from_list", "subjects": ["Chemistry", "Biology", "Physics", "Combined Mathematics", "Agricultural Science"], "count": 3, "min_grade": "S"},
-            {"type": "count_from_list", "subjects": ["Business Studies", "Economics", "Accounting"], "count": 3, "min_grade": "S"},
+            {"type": "and", "conditions": [
+                {"type": "stream_is", "streams": ["BIO_SCIENCE", "PHYSICAL_SCIENCE"]},
+                {"type": "count_from_list", "subjects": ["Chemistry", "Biology", "Physics", "Combined Mathematics", "Agricultural Science"], "count": 3, "min_grade": "S"},
+            ]},
+            {"type": "and", "conditions": [
+                {"type": "stream_is", "streams": ["COMMERCE"]},
+                {"type": "count_from_list", "subjects": ["Business Studies", "Economics", "Accounting"], "count": 3, "min_grade": "S"},
+            ]},
         ]},
         "ol_requirements": "Credit (C) in English, Mathematics, Science.",
-        "notes": "50% of intake from Bio/Phys-Sci path, 50% from Commerce path (selection quota). STREAM CAVEAT: text restricts to BioSci/PhysSci/Commerce -- see module docstring.",
+        "notes": "Category A (BioSci/PhysSci stream): 3 of {Chem,Bio,Phys,CombMaths,Agri}. Category B (Commerce stream): Business Studies+Economics+Accounting. 50% of intake from each category (selection quota, not an eligibility gate). Stream-conditional via stream_is.",
     },
     {"course_number": "106", "source_section": "2.2.8.30", "subject_rule": {"type": "or", "conditions": [
         {"type": "count_from_list", "subjects": ["Chemistry", "Physics", "Biology"], "count": 3, "min_grade": "S"},
@@ -636,15 +671,18 @@ REQUIREMENTS: list[dict] = [
     {
         "course_number": "109",  # Business Science
         "source_section": "2.2.8.31",
-        "subject_rule": {"type": "or", "conditions": [
-            {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
-            {"type": "and", "conditions": [
-                {"type": "any_n_subjects", "count": 2, "min_grade": "S"},
-                {"type": "subject_min_grade", "subject": "Information & Communication Technology", "min_grade": "S"},
+        "subject_rule": {"type": "and", "conditions": [
+            {"type": "stream_is", "streams": ["PHYSICAL_SCIENCE", "COMMERCE"]},
+            {"type": "or", "conditions": [
+                {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+                {"type": "and", "conditions": [
+                    {"type": "any_n_subjects", "count": 2, "min_grade": "S"},
+                    {"type": "subject_min_grade", "subject": "Information & Communication Technology", "min_grade": "S"},
+                ]},
             ]},
         ]},
         "ol_requirements": "Credit (C) in Mathematics.",
-        "notes": "Approximated: real rule is 3 from Physical-Science-or-Commerce stream, OR 2 from that + ICT as third -- needs admin review for exact stream-list precision.",
+        "notes": "3 subjects from Physical-Science-or-Commerce stream, OR 2 from that + ICT as the third. Stream-conditional via stream_is.",
     },
     {
         "course_number": "110",  # Financial Engineering
@@ -673,10 +711,13 @@ REQUIREMENTS: list[dict] = [
         "course_number": "124",  # Indigenous Pharmaceutical Technology
         "source_section": "2.2.8.39",
         "subject_rule": {"type": "or", "conditions": [
-            {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+            {"type": "and", "conditions": [
+                {"type": "stream_is", "streams": ["ENGINEERING_TECH", "BIOSYSTEMS_TECH"]},
+                {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+            ]},
             {"type": "count_from_list", "subjects": ["Chemistry", "Physics", "Biology", "Agricultural Science"], "count": 3, "min_grade": "S"},
         ]},
-        "notes": "Approximated: first path is any 3 from Eng Tech/Biosystems Tech stream specifically -- needs admin review for exact stream-list precision.",
+        "notes": "Path 1: any 3 from Eng Tech/Biosystems Tech stream (stream-conditional via stream_is). Path 2: 3 of {Chem,Phys,Bio,AgriSci} (pure subject, any stream).",
     },
     {"course_number": "125", "source_section": "2.2.8.40", "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"}},  # Yoga and Parapsychology
     {"course_number": "126", "source_section": "2.2.8.41", "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"}},  # Social Studies in Indigenous Knowledge
@@ -794,5 +835,33 @@ REQUIREMENTS: list[dict] = [
         "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
         "ol_requirements": "Credit (C) in Mathematics.",
         "notes": "Any 3 Arts-stream subjects per 2.2.1.1 basket rules.",
+    },
+    {
+        "course_number": "040",  # Management Studies (TV) - B
+        "source_section": "2.2.2.5",
+        "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+        "notes": "No dedicated §2.2 entry for course 040 itself -- it is the same programme as course 022 (base 'Management Studies (TV)', §2.2.2.5: 'Candidates... having offered any three subjects... are eligible', no stream restriction). The 60%/40% Commerce-stream split mentioned there is a selection quota, not a subject gate; course_stream_eligibility (all 6 streams) verified correct as-is.",
+    },
+    {
+        "course_number": "042",  # Arts (SAB) - B
+        "source_section": "2.2.1.1(2)",
+        "subject_rule": {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+        "notes": "No dedicated §2.2 entry for course 042 itself -- it is the Commerce-stream-quota variant of course 021 ('Arts (SAB)', §2.2.1.1.2: 'Students who have satisfied the minimum requirements for admission in Arts Stream or Commerce Stream are eligible', no further subject-combination restriction stated). course_stream_eligibility (COMMERCE only) verified correct as-is.",
+    },
+    {
+        "course_number": "271",  # Management and Information Technology (MIT) (Bio Science Stream)
+        "source_section": "2.2.8.2",
+        "subject_rule": {"type": "and", "conditions": [
+            {"type": "one_of_min_grade", "subjects": _MATHS_PHYS_GROUP, "min_grade": "C"},
+            {"type": "or", "conditions": [
+                {"type": "count_from_list", "subjects": ["Biology", "Chemistry", "Physics", "Combined Mathematics", "Mathematics", "Higher Mathematics"], "count": 3, "min_grade": "S"},
+                {"type": "and", "conditions": [
+                    {"type": "count_from_list", "subjects": ["Biology", "Chemistry", "Physics", "Combined Mathematics", "Mathematics", "Higher Mathematics"], "count": 2, "min_grade": "S"},
+                    {"type": "subject_min_grade", "subject": "Information & Communication Technology", "min_grade": "S"},
+                ]},
+            ]},
+        ]},
+        "ol_requirements": "At least Very Good Pass (B) in Mathematics; at least Credit Pass (C) in English.",
+        "notes": "Same programme as course 027 (MIT) -- §2.2.8.2 explicitly states '40% of intake from Biological Science Stream' is selected separately; course 271 is the cutoff-tracking code for that 40% quota at the same university (Kelaniya). Subject rule mirrors 027's exactly. course_stream_eligibility (BIO_SCIENCE only) verified correct as-is.",
     },
 ]

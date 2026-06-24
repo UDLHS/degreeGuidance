@@ -45,6 +45,10 @@ class ScoredRecommendation(BaseModel):
     status: str  # eligible | conditional
     is_marginal: bool
     available_mediums: list[str]
+    eligible_stream_codes: list[str] = Field(
+        default_factory=list,
+        description="Stream codes (e.g. BIO_SCIENCE) that are eligible for this course.",
+    )
     total_score: float
     bucket: str  # safe | ambitious | hidden | consider
     breakdown: list[DimensionBreakdownItem]

@@ -103,6 +103,23 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
     scored = score_courses(scorables, profile, config)
     item_by_code = {it.course_code: it for it in elig.results}
 
+    # Bulk-fetch eligible stream codes for every result in one query.
+    result_codes = [it.course_code for it in elig.results]
+    stream_rows = (
+        await session.execute(
+            text(
+                "SELECT cse.course_code, s.code AS stream_code "
+                "FROM course_stream_eligibility cse "
+                "JOIN streams s ON s.stream_id = cse.stream_id "
+                "WHERE cse.course_code = ANY(:codes)"
+            ),
+            {"codes": result_codes},
+        )
+    ).all()
+    streams_by_code: dict[str, list[str]] = {}
+    for row in stream_rows:
+        streams_by_code.setdefault(row.course_code, []).append(row.stream_code)
+
     recommendations = [
         ScoredRecommendation(
             course_code=it.course_code,
@@ -116,6 +133,7 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
             status=it.status,
             is_marginal=it.is_marginal,
             available_mediums=it.available_mediums,
+            eligible_stream_codes=sorted(streams_by_code.get(it.course_code, [])),
             total_score=s.total_score,
             bucket=s.bucket,
             breakdown=[

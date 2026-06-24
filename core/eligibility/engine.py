@@ -143,17 +143,19 @@ def _passes_subject_requirement(
     course_number: str | None,
     subjects: list[SubjectResult],
     rules_by_number: dict[str, dict],
+    stream_code: str | None,
 ) -> bool:
-    """True if the course is ungated, or the student's subjects satisfy its
-    curated rule. False only when a rule exists and is NOT satisfied -- a
-    course with no curated rule is always ungated by design (masterplan
-    incremental-curation principle, see migration 24)."""
+    """True if the course is ungated, or the student's subjects (and, where the
+    rule needs it, their stream) satisfy its curated rule. False only when a
+    rule exists and is NOT satisfied -- a course with no curated rule is always
+    ungated by design (masterplan incremental-curation principle, see
+    migration 24)."""
     if course_number == ARTS_COURSE_NUMBER:
         return check_arts_eligibility(subjects)
     rule = rules_by_number.get(course_number) if course_number else None
     if rule is None:
         return True
-    return evaluate_subject_rule(rule, subjects)
+    return evaluate_subject_rule(rule, subjects, stream_code)
 
 
 async def _get_max_year(session: AsyncSession) -> int | None:
@@ -217,7 +219,9 @@ async def evaluate_eligibility(
     subject_filtered_count = 0
 
     for r in rows:
-        if not _passes_subject_requirement(r["course_number"], student_subjects, rules_by_number):
+        if not _passes_subject_requirement(
+            r["course_number"], student_subjects, rules_by_number, req.stream_code
+        ):
             subject_filtered_count += 1
             continue
 

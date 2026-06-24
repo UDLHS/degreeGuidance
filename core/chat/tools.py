@@ -1,12 +1,17 @@
 """Tool implementations called by the Gemini agentic loop.
 
-Three tools:
+Four tools:
   search_knowledge  — RAG search across all 50 factsheets
   lookup_course     — full factsheet + recent cutoffs for one course number
   get_cutoff_trend  — year-by-year Z-score history for a course-university code
+  search_web        — live DuckDuckGo search filtered to trusted sources
 """
 
 from __future__ import annotations
+
+import asyncio
+import logging
+from urllib.parse import urlparse
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +19,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from google import genai
 
 from core.rag.retrieval import retrieve
+
+log = logging.getLogger(__name__)
+
+# Domains we consider authoritative for Sri Lanka higher-education advice
+_TRUSTED_DOMAINS = {
+    "ugc.ac.lk", "moe.gov.lk", "cbsl.gov.lk", "statistics.gov.lk",
+    "iesl.lk", "slmc.lk", "icasl.lk", "slaas.lk",
+    "cmb.ac.lk", "pdn.ac.lk", "sjp.ac.lk", "kln.ac.lk", "mrt.ac.lk",
+    "ruh.ac.lk", "ucsc.cmb.ac.lk", "uja.ac.lk", "seusl.ac.lk",
+    "dailyft.lk", "dailymirror.lk", "theisland.lk", "sundayobserver.lk",
+    "lmd.lk", "bizenglish.adaderana.lk",
+    "worldbank.org", "ilo.org", "adb.org", "undp.org",
+    "topuniversities.com", "timeshighereducation.com",
+    "linkedin.com", "icaew.com", "accaglobal.com", "cimaglobal.com",
+}
+
+def _trust_score(url: str) -> int:
+    """Return 2 = trusted domain, 1 = .lk or .ac, 0 = unknown."""
+    try:
+        host = urlparse(url).netloc.lower().lstrip("www.")
+    except Exception:
+        return 0
+    if host in _TRUSTED_DOMAINS or any(host.endswith("." + d) for d in _TRUSTED_DOMAINS):
+        return 2
+    if host.endswith(".lk") or host.endswith(".ac"):
+        return 1
+    return 0
 
 
 async def search_knowledge(
@@ -121,3 +153,43 @@ async def get_cutoff_trend(session: AsyncSession, course_code: str) -> str:
         "Use the most recent year as a guide, not a guarantee."
     )
     return "\n".join(lines)
+
+
+async def search_web(query: str) -> str:
+    """Search the live web via DuckDuckGo. Returns top results ranked by source trustworthiness."""
+    from ddgs import DDGS
+
+    # Always append Sri Lanka context if not already in query
+    if "sri lanka" not in query.lower():
+        search_query = f"{query} Sri Lanka"
+    else:
+        search_query = query
+
+    def _fetch() -> list[dict]:
+        try:
+            with DDGS() as ddgs:
+                return list(ddgs.text(search_query, max_results=10))
+        except Exception as e:
+            log.warning("DuckDuckGo search failed: %s", e)
+            return []
+
+    loop = asyncio.get_event_loop()
+    raw = await loop.run_in_executor(None, _fetch)
+
+    if not raw:
+        return "Web search returned no results. Please rely on the knowledge base for this query."
+
+    # Sort by trust score descending
+    scored = sorted(raw, key=lambda r: _trust_score(r.get("href", "")), reverse=True)
+
+    parts = []
+    for r in scored[:6]:
+        title = r.get("title", "").strip()
+        url = r.get("href", "").strip()
+        body = r.get("body", "").strip()
+        trust = _trust_score(url)
+        badge = " [Trusted source]" if trust == 2 else (" [.lk source]" if trust == 1 else "")
+        parts.append(f"**{title}**{badge}\nURL: {url}\n{body}")
+
+    header = f'Web search results for: "{search_query}"\n\n'
+    return header + "\n\n---\n\n".join(parts)

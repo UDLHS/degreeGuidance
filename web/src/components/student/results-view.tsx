@@ -24,6 +24,15 @@ const BUCKET_META: Record<string, { label: string; color: string; bg: string; de
 };
 const BUCKET_ORDER = ["safe", "ambitious", "consider"];
 
+const STREAM_SHORT: Record<string, string> = {
+  PHYSICAL_SCIENCE: "Physical Sci",
+  BIO_SCIENCE: "Bio Sci",
+  COMMERCE: "Commerce",
+  ARTS: "Arts",
+  ENGINEERING_TECH: "Engineering Tech",
+  BIOSYSTEMS_TECH: "Biosystems Tech",
+};
+
 const DIMENSION_LABEL: Record<string, string> = {
   z_margin: "Z-score margin",
   university: "University preference",
@@ -188,6 +197,18 @@ function CourseCard({ d, accent }: { d: ScoredRecommendation; accent: string }) 
             {d.course_name}
           </h3>
           <div className="text-[15px] font-medium text-[#7c89a0]">{d.university_name}</div>
+          {d.eligible_stream_codes.length > 1 ? (
+            <div className="mt-[9px] flex flex-wrap gap-[6px]">
+              {d.eligible_stream_codes.map((code) => (
+                <span
+                  key={code}
+                  className="inline-block rounded-full border border-[#e3e9f2] px-[10px] py-[3px] text-[11.5px] font-semibold text-[#7c89a0]"
+                >
+                  {STREAM_SHORT[code] ?? code}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="flex-shrink-0 text-right">
           <div

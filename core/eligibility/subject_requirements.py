@@ -10,6 +10,13 @@ Leaf condition types (cover every pattern found across the full §2.2 read):
   one_of_min_grade    at least one subject from a list at >= a minimum grade
   count_from_list     at least N subjects from a list, each at >= a minimum grade
   any_n_subjects      just a count of passing subjects, no subject constraint
+  stream_is           true iff the student's A/L stream is in a given list --
+                       for courses whose rule genuinely differs by stream (e.g.
+                       Tourism & Hospitality Mgmt: Commerce/BioSci/PhysSci need
+                       no extra subject gate, but Arts-stream students need a
+                       specific anchor subject). Stream-level ALLOW/DENY is
+                       still course_stream_eligibility's job; this is only for
+                       expressing a rule that is conditional ON the stream.
   and / or            combinators
 
 A course with no curated rule is ungated by design (see migration 24) -- callers
@@ -42,14 +49,20 @@ def _meets_min_grade(result: SubjectResult, min_grade: str) -> bool:
     return have >= need
 
 
-def evaluate_subject_rule(rule: dict, subjects: list[SubjectResult]) -> bool:
-    """Evaluate a subject_rule JSON tree against the student's actual subjects."""
+def evaluate_subject_rule(
+    rule: dict, subjects: list[SubjectResult], stream_code: str | None = None
+) -> bool:
+    """Evaluate a subject_rule JSON tree against the student's actual subjects
+    (and, for the few rules that need it, their A/L stream)."""
     rtype = rule["type"]
 
     if rtype == "and":
-        return all(evaluate_subject_rule(c, subjects) for c in rule["conditions"])
+        return all(evaluate_subject_rule(c, subjects, stream_code) for c in rule["conditions"])
     if rtype == "or":
-        return any(evaluate_subject_rule(c, subjects) for c in rule["conditions"])
+        return any(evaluate_subject_rule(c, subjects, stream_code) for c in rule["conditions"])
+
+    if rtype == "stream_is":
+        return stream_code in set(rule["streams"])
 
     if rtype == "subject_min_grade":
         return any(

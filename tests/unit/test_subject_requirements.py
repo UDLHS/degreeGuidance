@@ -141,3 +141,50 @@ def test_mit_qualifies_via_ict_substitution():
 def test_mit_fails_with_only_one_stream_subject_and_no_ict():
     student = _s(("Combined Mathematics", "C"), ("Accounting", "S"), ("Economics", "S"))
     assert evaluate_subject_rule(MIT_RULE, student) is False
+
+
+# stream_is -- Tourism & Hospitality Management (092)-style rule: Commerce /
+# BioSci / PhysSci students need no extra subject gate; Arts-stream students
+# specifically need >=1 of {Economics, Geography, Business Statistics}.
+TOURISM_HOSPITALITY_RULE = {
+    "type": "or",
+    "conditions": [
+        {
+            "type": "and",
+            "conditions": [
+                {"type": "stream_is", "streams": ["COMMERCE", "BIO_SCIENCE", "PHYSICAL_SCIENCE"]},
+                {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+            ],
+        },
+        {
+            "type": "and",
+            "conditions": [
+                {"type": "stream_is", "streams": ["ARTS"]},
+                {"type": "one_of_min_grade", "subjects": ["Economics", "Geography", "Business Statistics"], "min_grade": "S"},
+                {"type": "any_n_subjects", "count": 3, "min_grade": "S"},
+            ],
+        },
+    ],
+}
+
+
+def test_stream_is_commerce_student_no_extra_gate():
+    student = _s(("Business Studies", "S"), ("Economics", "S"), ("Accounting", "S"))
+    assert evaluate_subject_rule(TOURISM_HOSPITALITY_RULE, student, stream_code="COMMERCE") is True
+
+
+def test_stream_is_arts_student_with_anchor_subject_passes():
+    student = _s(("Geography", "S"), ("History", "S"), ("Sinhala", "S"))
+    assert evaluate_subject_rule(TOURISM_HOSPITALITY_RULE, student, stream_code="ARTS") is True
+
+
+def test_stream_is_arts_student_without_anchor_subject_fails():
+    student = _s(("History", "S"), ("Sinhala", "S"), ("Tamil", "S"))
+    assert evaluate_subject_rule(TOURISM_HOSPITALITY_RULE, student, stream_code="ARTS") is False
+
+
+def test_stream_is_unlisted_stream_fails_both_branches():
+    # ENGINEERING_TECH isn't covered by either branch -- correctly excluded
+    # (course_stream_eligibility wouldn't route this student here anyway).
+    student = _s(("Engineering Technology", "S"), ("Science for Technology", "S"), ("Mathematics", "S"))
+    assert evaluate_subject_rule(TOURISM_HOSPITALITY_RULE, student, stream_code="ENGINEERING_TECH") is False

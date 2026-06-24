@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, FileText, LayoutDashboard, Tags, Upload } from "lucide-react";
+import { BookOpen, FileText, LayoutDashboard, ListChecks, Tags, Upload } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const NAV = [
   { href: "/admin/ingestions", label: "Ingestions", icon: Upload },
   { href: "/admin/aliases", label: "Aliases", icon: Tags },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
+  { href: "/admin/requirements", label: "Subject Rules", icon: ListChecks },
 ];
 
 export function Sidebar() {
