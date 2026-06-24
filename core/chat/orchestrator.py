@@ -150,22 +150,54 @@ def _build_system_prompt(context: dict[str, Any] | None) -> str:
         district = context.get("district_code", "").replace("_", " ").title()
         stream = context.get("stream_code", "").replace("_", " ").title()
         subjects = context.get("subjects")
+        interests = context.get("interests")
+        eligible_courses: list[dict] = context.get("eligible_courses") or []
 
-        profile_lines = ["\n## This student's profile"]
+        lines = ["\n## This student's profile (from the eligibility form they just filled in)"]
         if z is not None:
-            profile_lines.append(f"- Z-score: **{z}**")
+            lines.append(f"- Z-score: **{z}**")
         if district:
-            profile_lines.append(f"- District: **{district}**")
+            lines.append(f"- District: **{district}**")
         if stream:
-            profile_lines.append(f"- A/L stream: **{stream}**")
+            lines.append(f"- A/L stream: **{stream}**")
         if subjects:
             subj_str = ", ".join(f"{s['subject']} ({s['grade']})" for s in subjects)
-            profile_lines.append(f"- Subjects: {subj_str}")
-        profile_lines.append(
-            "\nUse this profile proactively — when recommending courses, "
-            "check whether this student's Z-score and district are competitive for that course."
-        )
-        prompt += "\n".join(profile_lines)
+            lines.append(f"- A/L subjects: {subj_str}")
+        if interests:
+            lines.append(f"- What they told us they're interested in: \"{interests}\"")
+
+        if eligible_courses:
+            lines.append(
+                f"\n## Courses this student is eligible for ({len(eligible_courses)} total)\n"
+                "These are already verified against their Z-score and district cutoffs. "
+                "**When they ask about interests, career paths, or 'what should I choose', "
+                "always filter THIS list first — never recommend a course they cannot get into.**\n"
+            )
+            lines.append("| Course | Code | University | Cutoff | Margin | Status |")
+            lines.append("|--------|------|-----------|--------|--------|--------|")
+            for c in eligible_courses[:40]:
+                margin = c.get("margin", 0)
+                margin_str = f"+{margin:.4f}" if margin >= 0 else f"{margin:.4f}"
+                bucket = c.get("bucket", "").capitalize()
+                lines.append(
+                    f"| {c['course_name']} | {c['course_code']} | {c['university']} "
+                    f"| {c['cutoff']:.4f} | {margin_str} | {bucket} |"
+                )
+            lines.append(
+                "\n**Safe** = comfortably above cutoff. "
+                "**Ambitious** = right at the edge (within ~0.05). "
+                "**Consider** = worth knowing about.\n"
+                "When the student asks 'I like X, what should I choose?' — scan this table for "
+                "courses matching their interest, then explain WHY each one fits, using "
+                "`lookup_course` to get more detail if needed."
+            )
+        else:
+            lines.append(
+                "\nNo eligible course list available — use `lookup_course` and compare the "
+                "cutoff against the student's Z-score and district manually."
+            )
+
+        prompt += "\n".join(lines)
 
     return prompt
 

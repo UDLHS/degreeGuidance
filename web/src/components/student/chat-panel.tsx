@@ -10,11 +10,22 @@ interface Message {
   tools?: string[];
 }
 
+interface EligibleCourse {
+  course_code: string;
+  course_name: string;
+  university: string;
+  cutoff: number;
+  margin: number;
+  bucket: "safe" | "ambitious" | "consider";
+}
+
 interface ChatContext {
   z_score?: number;
   district_code?: string;
   stream_code?: string;
   subjects?: Array<{ subject: string; grade: string }>;
+  interests?: string;
+  eligible_courses?: EligibleCourse[];
 }
 
 interface ChatPanelProps {

@@ -327,6 +327,15 @@ export function GuidanceFlow() {
               district_code: districtCode ?? undefined,
               stream_code: streamCode ?? undefined,
               subjects: subjects.filter((s): s is SubjectInput => s !== null),
+              interests: interests.trim() || undefined,
+              eligible_courses: results.recommendations.map((r) => ({
+                course_code: r.course_code,
+                course_name: r.course_name,
+                university: r.university_name,
+                cutoff: r.cutoff_z_score,
+                margin: r.student_margin,
+                bucket: r.bucket,
+              })),
             }}
           />
         </>
