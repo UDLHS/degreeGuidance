@@ -35,5 +35,11 @@ class Settings(BaseSettings):
     # Ingestion working directory — uploaded PDFs + extracted CSVs (C2)
     ingestion_work_dir: str = Field(default="data/ingestion_work")
 
+    # Gemini API (RAG + chatbot)
+    gemini_api_key: str = Field(default="", description="Google Gemini API key")
+    gemini_embedding_model: str = Field(default="models/gemini-embedding-001")
+    gemini_chat_model: str = Field(default="models/gemini-2.5-flash")
+    gemini_embedding_dim: int = Field(default=768)
+
 
 settings = Settings()
