@@ -19,7 +19,7 @@ from google import genai
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.chat.tools import get_cutoff_trend, lookup_course, search_knowledge, search_web
+from core.chat.tools import find_course, get_cutoff_trend, lookup_course, search_knowledge, search_web
 from core.config import settings
 
 log = logging.getLogger(__name__)
@@ -31,6 +31,30 @@ MAX_TOOL_TURNS = 6   # allow more turns when web search + DB tools both fire
 # ---------------------------------------------------------------------------
 
 FUNCTION_DECLARATIONS = [
+    types.FunctionDeclaration(
+        name="find_course",
+        description=(
+            "Search the database for degree programmes by name, abbreviation, or keyword. "
+            "Use this FIRST whenever a student mentions a course you don't immediately have "
+            "a code for — e.g. 'ECS', 'Electronics', 'Bio Systems', 'ICT', 'Law', 'Architecture', "
+            "'Quantity Surveying', 'Textile', 'Town Planning', 'Nursing', etc. "
+            "Returns matching course codes and university names so you can then call "
+            "lookup_course or get_cutoff_trend with the exact code."
+        ),
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={
+                "name_query": types.Schema(
+                    type="STRING",
+                    description=(
+                        "Course name, abbreviation, or keyword. E.g. 'Electronics Computer Science', "
+                        "'ECS', 'Quantity Surveying', 'Law', 'Bio Systems Technology', 'Nursing'."
+                    ),
+                )
+            },
+            required=["name_query"],
+        ),
+    ),
     types.FunctionDeclaration(
         name="search_knowledge",
         description=(
@@ -135,14 +159,23 @@ def _build_system_prompt(context: dict[str, Any] | None) -> str:
 
 ## Rules
 
-1. **Never guess a Z-score cutoff.** Always call `lookup_course` or `get_cutoff_trend`.
-2. **For career pathway questions**, call `search_knowledge` first (factsheet career section), then `search_web` for current market data. Synthesise both into one answer.
-3. **Cite your sources.** Say "According to the Engineering factsheet..." or "According to [source URL]...". If a web result has no trustworthy source, do not use it.
-4. **Never fabricate statistics.** If a number is unverified, say so.
-5. **Be direct.** Say "I recommend..." not "You might consider...".
-6. **Be honest about uncertainty.** "Cutoffs shift by 0.05–0.10 each year — treat 2023 data as a guide, not a guarantee."
-7. **Personalise when profile is available.** If the student's Z-score and district are shown, check whether they are competitive for a course before recommending it.
-8. **End every answer with one actionable next step** (e.g. "Visit ugc.ac.lk in August for the 2024 cutoffs" or "Contact IESL directly to confirm current exemption criteria").
+### When you don't know the course code — MANDATORY tool sequence
+If a student mentions a course by name, abbreviation, or nickname you don't immediately recognise (e.g. "ECS", "Bio Systems", "Quantity Surveying", "Textile Technology", "Town Planning", "Nursing", "Law", "ICT"), you **must** do ALL of the following before answering:
+1. Call `find_course` with the name/abbreviation → this searches the database by name and returns the real course code(s)
+2. Call `lookup_course` with the course number found → get the factsheet and cutoffs
+3. Only THEN answer the student
+
+**NEVER say "I don't have data on this course", "this course is not listed", or "I cannot find this" without first calling `find_course`.** The database has all 261 UGC courses. If `find_course` returns no results, THEN call `search_knowledge` and `search_web`.
+
+### Other rules
+1. **Never guess a Z-score cutoff.** Always pull from the database via `lookup_course` or `get_cutoff_trend`.
+2. **For career questions**, call `search_knowledge` first, then `search_web` for current Sri Lanka market data. Synthesise both.
+3. **Cite sources.** Name them: "According to the Engineering factsheet..." or "Source: [URL]". Discard untrustworthy web results.
+4. **Never fabricate statistics.** If unverified, say so explicitly.
+5. **Be direct.** "I recommend..." not "You might consider...".
+6. **Be honest about data age.** "These are 2023 cutoffs — they shift 0.05–0.10 each year."
+7. **Personalise.** Use the student's Z-score and district to say whether they're competitive for a course.
+8. **End with one actionable next step** every time.
 """
 
     if context:
@@ -221,6 +254,8 @@ async def _execute_tool(
             return await get_cutoff_trend(session, args["course_code"])
         if name == "search_web":
             return await search_web(args["query"])
+        if name == "find_course":
+            return await find_course(session, args["name_query"])
         return f"Unknown tool: {name}"
     except Exception as exc:
         log.exception("Tool %s failed: %s", name, exc)

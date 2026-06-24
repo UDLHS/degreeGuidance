@@ -1,6 +1,7 @@
 """Tool implementations called by the Gemini agentic loop.
 
-Four tools:
+Five tools:
+  find_course       — fuzzy name/abbreviation search on the courses DB table
   search_knowledge  — RAG search across all 50 factsheets
   lookup_course     — full factsheet + recent cutoffs for one course number
   get_cutoff_trend  — year-by-year Z-score history for a course-university code
@@ -46,6 +47,117 @@ def _trust_score(url: str) -> int:
     if host.endswith(".lk") or host.endswith(".ac"):
         return 1
     return 0
+
+
+# Common abbreviations students use → expanded search terms
+_ABBREV_MAP: dict[str, str] = {
+    "ECS": "Electronics Computer Science",
+    "CS": "Computer Science",
+    "IT": "Information Technology",
+    "ICT": "Information Communication Technology",
+    "ET": "Engineering Technology",
+    "BST": "Biosystems Technology",
+    "BIT": "Bachelor Information Technology",
+    "MIS": "Management Information Systems",
+    "SE": "Software Engineering",
+    "AI": "Artificial Intelligence",
+    "DS": "Data Science",
+    "QS": "Quantity Surveying",
+    "TP": "Town Planning",
+    "EM": "Estate Management",
+    "FM": "Facilities Management",
+    "SCI": "Science",
+    "AGRI": "Agriculture",
+    "BIO": "Biological",
+    "CHEM": "Chemistry",
+    "PHYS": "Physics",
+    "MATH": "Mathematics",
+    "STATS": "Statistics",
+    "ECON": "Economics",
+    "MGMT": "Management",
+    "LAW": "Law",
+    "MED": "Medicine",
+    "DENT": "Dentistry",
+    "VET": "Veterinary",
+    "ARCH": "Architecture",
+    "NURS": "Nursing",
+    "PHARM": "Pharmacy",
+}
+
+
+async def _course_search(session: AsyncSession, terms: list[str], require_all: bool = True) -> list:
+    """Run a DB search requiring all terms (or any term) to appear in course name."""
+    if not terms:
+        return []
+    if require_all:
+        conditions = " AND ".join(f"c.name_en ILIKE :t{i}" for i in range(len(terms)))
+    else:
+        conditions = " OR ".join(f"c.name_en ILIKE :t{i}" for i in range(len(terms)))
+    params = {f"t{i}": f"%{term}%" for i, term in enumerate(terms)}
+    rows = (await session.execute(
+        text(
+            f"SELECT c.course_code, c.course_number, c.name_en, u.name_en AS university_name "
+            f"FROM courses c JOIN universities u ON u.university_id = c.university_id "
+            f"WHERE ({conditions}) AND c.is_active = TRUE ORDER BY c.course_code LIMIT 20"
+        ),
+        params,
+    )).fetchall()
+    return list(rows)
+
+
+async def find_course(session: AsyncSession, name_query: str) -> str:
+    """Search courses table by name/abbreviation. Returns matching course codes and names."""
+    raw = name_query.strip().upper()
+
+    # Expand known abbreviations
+    expanded = _ABBREV_MAP.get(raw, name_query)
+    if expanded != name_query:
+        log.info("find_course: expanded '%s' -> '%s'", name_query, expanded)
+
+    # Build search terms from the (possibly expanded) query
+    terms = [t for t in expanded.replace(",", " ").split() if len(t) > 1]
+    if not terms:
+        return "Please provide a course name or keyword to search."
+
+    # Strategy 1: all terms must match
+    rows = await _course_search(session, terms, require_all=True)
+
+    # Strategy 2: if no results, try pairs of terms (drop the least specific)
+    if not rows and len(terms) >= 3:
+        for skip in range(len(terms)):
+            subset = [t for i, t in enumerate(terms) if i != skip]
+            rows = await _course_search(session, subset, require_all=True)
+            if rows:
+                break
+
+    # Strategy 3: any single meaningful term
+    if not rows:
+        meaningful = [t for t in terms if len(t) > 3]
+        for term in meaningful:
+            rows = await _course_search(session, [term], require_all=True)
+            if rows:
+                break
+
+    if not rows:
+        return (
+            f"No courses found matching '{name_query}' in the database. "
+            "Try search_knowledge or search_web for more information."
+        )
+
+    lines = [f"Courses matching '{name_query}' (expanded: '{expanded}'):\n"]
+    prev_number = None
+    for r in rows:
+        if r.course_number != prev_number:
+            lines.append(f"\n**{r.name_en.split('(')[0].strip()}** — course number {r.course_number}")
+            prev_number = r.course_number
+        lines.append(f"  - {r.course_code}: {r.university_name}")
+
+    lines.append(
+        "\nCall lookup_course with the course number (e.g. '119') to get the full "
+        "factsheet and Z-score cutoffs, or get_cutoff_trend with the full code "
+        "(e.g. '119D') for year-by-year history."
+    )
+    return "\n".join(lines)
 
 
 async def search_knowledge(
