@@ -7,11 +7,15 @@ that have no usable cutoff in the student's district (so none disappear). No LLM
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 
+from google import genai
+from google.genai.types import EmbedContentConfig
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import settings
 from core.eligibility.engine import (
     _resolve_district_id,
     _resolve_stream_id,
@@ -27,6 +31,69 @@ from core.schemas.recommendation import (
 )
 from core.scoring.config import load_active_config
 from core.scoring.engine import ScorableCourse, ScoringProfile, score_courses
+
+_gemini_client: genai.Client | None = None
+
+
+def _get_client() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=settings.gemini_api_key)
+    return _gemini_client
+
+
+def _course_number(course_code: str) -> str:
+    """'119D' → '119'  (strip trailing alpha suffix)."""
+    return re.sub(r"[A-Za-z]+$", "", course_code)
+
+
+async def _interest_scores(
+    session: AsyncSession,
+    interest_text: str,
+    course_codes: list[str],
+) -> dict[str, float]:
+    """Embed interest_text and return {course_code: max_cosine_similarity} for each code."""
+    if not interest_text.strip() or not course_codes:
+        return {}
+
+    # Embed the student's interest text as a query vector
+    client = _get_client()
+    result = client.models.embed_content(
+        model=settings.gemini_embedding_model,
+        contents=interest_text.strip(),
+        config=EmbedContentConfig(
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=settings.gemini_embedding_dim,
+        ),
+    )
+    vec = result.embeddings[0].values
+
+    # Map each course_code to its course_number for the chunks lookup
+    numbers = list({_course_number(c) for c in course_codes})
+
+    # One pgvector query: best-matching chunk similarity per course_number
+    rows = (
+        await session.execute(
+            text(
+                "SELECT ds.course_number, "
+                "MAX(1 - (c.embedding <=> CAST(:vec AS vector))) AS score "
+                "FROM chunks c "
+                "JOIN document_sources ds ON ds.source_id = c.source_id "
+                "WHERE ds.course_number = ANY(:numbers) "
+                "GROUP BY ds.course_number"
+            ),
+            {"vec": f"[{','.join(str(v) for v in vec)}]", "numbers": numbers},
+        )
+    ).all()
+
+    # Build number → score lookup, then map back to course_codes
+    number_score: dict[str, float] = {r.course_number: float(r.score) for r in rows}
+    return {
+        code: number_score[_course_number(code)]
+        for code in course_codes
+        if _course_number(code) in number_score
+    }
+
 
 # stream-eligible, active courses with NO usable cutoff for (year, district)
 _ALSO_OFFERED_FROM = (
@@ -90,6 +157,16 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
         career_tags=frozenset(req.career_tags),
         industry_tags=frozenset(req.industry_tags),
     )
+
+    # Pre-compute interest scores via pgvector when student typed interests
+    interest_map: dict[str, float] = {}
+    if req.interests and req.interests.strip():
+        interest_map = await _interest_scores(
+            session,
+            req.interests,
+            [it.course_code for it in elig.results],
+        )
+
     scorables = [
         ScorableCourse(
             course_code=it.course_code,
@@ -97,6 +174,7 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
             student_margin=it.student_margin,
             university_code=it.university_code,
             university_district_id=it.university_district_id,
+            interest_score=interest_map.get(it.course_code),
         )
         for it in elig.results
     ]

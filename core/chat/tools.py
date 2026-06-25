@@ -25,15 +25,26 @@ log = logging.getLogger(__name__)
 
 # Domains we consider authoritative for Sri Lanka higher-education advice
 _TRUSTED_DOMAINS = {
-    "ugc.ac.lk", "moe.gov.lk", "cbsl.gov.lk", "statistics.gov.lk",
-    "iesl.lk", "slmc.lk", "icasl.lk", "slaas.lk",
+    # Government / regulatory
+    "ugc.ac.lk", "moe.gov.lk", "mohe.gov.lk", "cbsl.gov.lk", "statistics.gov.lk",
+    "scholarship.gov.lk", "nec.gov.lk",
+    # Professional bodies
+    "iesl.lk", "slmc.lk", "icasl.lk", "slaas.lk", "slim.lk",
+    "icaew.com", "accaglobal.com", "cimaglobal.com",
+    # Sri Lankan universities
     "cmb.ac.lk", "pdn.ac.lk", "sjp.ac.lk", "kln.ac.lk", "mrt.ac.lk",
     "ruh.ac.lk", "ucsc.cmb.ac.lk", "uja.ac.lk", "seusl.ac.lk",
+    # Sri Lankan news / business
     "dailyft.lk", "dailymirror.lk", "theisland.lk", "sundayobserver.lk",
     "lmd.lk", "bizenglish.adaderana.lk",
+    # Sri Lankan jobs / careers
+    "topjobs.lk", "jobs.lk", "xjobs.lk",
+    # International orgs
     "worldbank.org", "ilo.org", "adb.org", "undp.org",
-    "topuniversities.com", "timeshighereducation.com",
-    "linkedin.com", "icaew.com", "accaglobal.com", "cimaglobal.com",
+    # University rankings
+    "topuniversities.com", "timeshighereducation.com", "webometrics.info",
+    # Professional networking / certification
+    "linkedin.com", "wes.org",
 }
 
 def _trust_score(url: str) -> int:
@@ -279,7 +290,7 @@ async def search_web(query: str) -> str:
 
     def _fetch() -> list[dict]:
         try:
-            with DDGS() as ddgs:
+            with DDGS(timeout=15) as ddgs:
                 return list(ddgs.text(search_query, max_results=10))
         except Exception as e:
             log.warning("DuckDuckGo search failed: %s", e)

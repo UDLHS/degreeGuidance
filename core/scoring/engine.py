@@ -52,6 +52,7 @@ class ScorableCourse:
     student_margin: float  # student_z - cutoff (precomputed by the eligibility engine)
     university_code: str
     university_district_id: int
+    interest_score: Optional[float] = None  # pre-computed cosine similarity; None → inert
 
 
 @dataclass(frozen=True)
@@ -90,8 +91,12 @@ def _university(course: ScorableCourse, profile: ScoringProfile, th: dict) -> Op
     return 0.2
 
 
+def _interest(course: ScorableCourse, profile: ScoringProfile, th: dict) -> Optional[float]:
+    return course.interest_score  # None when student typed no interests → inert
+
+
 def _inert(course: ScorableCourse, profile: ScoringProfile, th: dict) -> Optional[float]:
-    return None  # interest/career/industry — Week 4-5
+    return None  # career/industry — future
 
 
 DimensionFn = Callable[[ScorableCourse, ScoringProfile, dict], Optional[float]]
@@ -99,7 +104,7 @@ DimensionFn = Callable[[ScorableCourse, ScoringProfile, dict], Optional[float]]
 DIMENSIONS: list[tuple[str, DimensionFn]] = [
     ("z_margin", _z_margin),
     ("university", _university),
-    ("interest", _inert),
+    ("interest", _interest),
     ("career", _inert),
     ("industry", _inert),
 ]

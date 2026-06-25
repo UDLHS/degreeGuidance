@@ -678,8 +678,8 @@ function PreferencesStep({
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="mt-[2px] flex-shrink-0">
           <path d="M12 2L3 7l9 5 9-5-9-5z" fill="#aab5c8" />
         </svg>
-        We save this with your results. It doesn&apos;t affect ranking yet — interest-based
-        matching is coming soon.
+        This affects your ranking — programmes whose content matches what you write here
+        are ranked higher using semantic similarity.
       </div>
     </section>
   );
