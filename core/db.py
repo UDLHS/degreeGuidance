@@ -19,7 +19,7 @@ class Base(DeclarativeBase):
     """Base class all ORM models inherit from."""
 
 
-_connect_args = {"ssl": True} if settings.environment == "production" else {}
+_connect_args = {"ssl": "require"} if settings.environment == "production" else {}
 
 engine = create_async_engine(
     settings.database_url,
