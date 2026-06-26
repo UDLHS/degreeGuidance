@@ -145,7 +145,7 @@ FUNCTION_DECLARATIONS = [
 # System prompt
 # ---------------------------------------------------------------------------
 
-def _build_system_prompt(context: dict[str, Any] | None) -> str:
+def _build_system_prompt(context: dict[str, Any] | None, web_search: bool = False) -> str:
     today = date.today().strftime("%B %d, %Y")
 
     prompt = f"""You are a senior academic advisor specialising in Sri Lankan state university admissions and graduate career pathways. Today is {today}.
@@ -200,6 +200,15 @@ For short factual questions (e.g. "What is the cutoff for 008B?"), skip the head
 6. **Be honest about data age.** "These are 2023 cutoffs — they shift 0.05–0.10 each year."
 7. **Personalise using the student profile.** Mention their Z-score margin, district, and interests when relevant — never generic.
 """
+
+    if web_search:
+        prompt += (
+            "\n## Enhanced web search mode (user-activated)\n"
+            "The student has turned on live web search. For EVERY question — not just career questions — "
+            "call `search_web` to find the most current information before answering. "
+            "Prioritise freshness: salary figures, job market trends, scholarship deadlines, university news, "
+            "and professional body requirements change frequently. Always note when information comes from a live source.\n"
+        )
 
     if context:
         z = context.get("z_score")
@@ -300,7 +309,7 @@ async def chat(
 ) -> tuple[str, list[str]]:
     """Run the agentic loop. Returns (reply_text, tools_used_names)."""
 
-    system_prompt = _build_system_prompt(context)
+    system_prompt = _build_system_prompt(context, web_search=web_search)
 
     # Build Gemini contents from saved history
     contents: list[types.Content] = []
@@ -312,13 +321,8 @@ async def chat(
 
     tools_used: list[str] = []
 
-    declarations = (
-        FUNCTION_DECLARATIONS
-        if web_search
-        else [d for d in FUNCTION_DECLARATIONS if d.name != "search_web"]
-    )
     tool_config = [
-        types.Tool(function_declarations=declarations),
+        types.Tool(function_declarations=FUNCTION_DECLARATIONS),
     ]
 
     config = types.GenerateContentConfig(
