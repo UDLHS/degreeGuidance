@@ -40,3 +40,16 @@ app.include_router(admin_requirements.router)
 @app.get("/health", tags=["meta"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/debug-db", tags=["meta"])
+async def debug_db() -> dict:
+    import traceback
+    from sqlalchemy import text
+    from core.db import engine
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            return {"ok": True, "result": result.scalar()}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "trace": traceback.format_exc()}
