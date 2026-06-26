@@ -27,7 +27,9 @@ log = logging.getLogger(__name__)
 _TRUSTED_DOMAINS = {
     # Government / regulatory
     "ugc.ac.lk", "moe.gov.lk", "mohe.gov.lk", "cbsl.gov.lk", "statistics.gov.lk",
-    "scholarship.gov.lk", "nec.gov.lk",
+    "scholarship.gov.lk", "nec.gov.lk", "labourdept.gov.lk", "boi.lk",
+    # Industry / tech bodies
+    "icta.lk", "sltda.gov.lk",
     # Professional bodies
     "iesl.lk", "slmc.lk", "icasl.lk", "slaas.lk", "slim.lk",
     "icaew.com", "accaglobal.com", "cimaglobal.com",
@@ -46,6 +48,50 @@ _TRUSTED_DOMAINS = {
     # Professional networking / certification
     "linkedin.com", "wes.org",
 }
+
+# Topic → priority trusted domains to scope-search first
+_TOPIC_PRIORITY: list[tuple[list[str], list[str]]] = [
+    (
+        ["salary", "pay", "wage", "earning", "income", "remuneration"],
+        ["topjobs.lk", "jobs.lk", "lmd.lk", "dailyft.lk"],
+    ),
+    (
+        ["employment", "labour", "labor", "workforce", "job market", "unemployment", "statistic", "survey"],
+        ["statistics.gov.lk", "labourdept.gov.lk", "worldbank.org", "ilo.org"],
+    ),
+    (
+        ["iesl", "chartered engineer", "engineering accredit", "professional engineer"],
+        ["iesl.lk", "ugc.ac.lk"],
+    ),
+    (
+        ["slmc", "medical council", "doctor register", "medicine accredit"],
+        ["slmc.lk", "ugc.ac.lk"],
+    ),
+    (
+        ["scholarship", "bursary", "mahapola", "stipend", "study abroad fund"],
+        ["scholarship.gov.lk", "mohe.gov.lk", "ugc.ac.lk"],
+    ),
+    (
+        ["ranking", "world rank", "qs rank", "times higher"],
+        ["topuniversities.com", "timeshighereducation.com", "webometrics.info"],
+    ),
+    (
+        ["acca", "cima", "accountan", "icasl", "chartered accountant"],
+        ["accaglobal.com", "cimaglobal.com", "icasl.lk"],
+    ),
+    (
+        ["it sector", "software industry", "tech industry", "icta", "export"],
+        ["icta.lk", "dailyft.lk", "worldbank.org"],
+    ),
+    (
+        ["tourism", "hotel", "hospitality"],
+        ["sltda.gov.lk", "dailyft.lk", "worldbank.org"],
+    ),
+    (
+        ["industry", "sector", "market", "gdp", "economy", "growth", "investment"],
+        ["worldbank.org", "adb.org", "cbsl.gov.lk", "boi.lk", "dailyft.lk"],
+    ),
+]
 
 def _trust_score(url: str) -> int:
     """Return 2 = trusted domain, 1 = .lk or .ac, 0 = unknown."""
@@ -279,34 +325,62 @@ async def get_cutoff_trend(session: AsyncSession, course_code: str) -> str:
 
 
 async def search_web(query: str) -> str:
-    """Search the live web via DuckDuckGo. Returns top results ranked by source trustworthiness."""
+    """Search live web. First queries priority trusted domains for this topic, then runs a
+    general search. Both run concurrently; results are merged (trusted-domain hits first),
+    deduplicated, and sorted by trust score before returning."""
     from ddgs import DDGS
 
-    # Always append Sri Lanka context if not already in query
     if "sri lanka" not in query.lower():
-        search_query = f"{query} Sri Lanka"
+        base_query = f"{query} Sri Lanka"
     else:
-        search_query = query
+        base_query = query
 
-    def _fetch() -> list[dict]:
+    # Pick priority domains based on query topic
+    q_lower = query.lower()
+    priority_domains: list[str] = []
+    for keywords, domains in _TOPIC_PRIORITY:
+        if any(kw in q_lower for kw in keywords):
+            priority_domains = domains
+            break
+
+    def _fetch(q: str, n: int = 10) -> list[dict]:
         try:
             with DDGS(timeout=15) as ddgs:
-                return list(ddgs.text(search_query, max_results=10))
+                return list(ddgs.text(q, max_results=n))
         except Exception as e:
-            log.warning("DuckDuckGo search failed: %s", e)
+            log.warning("DuckDuckGo search failed (%s): %s", q[:60], e)
             return []
 
     loop = asyncio.get_event_loop()
-    raw = await loop.run_in_executor(None, _fetch)
 
-    if not raw:
+    # Build site-scoped query for priority domains (max 4 to keep query length sane)
+    scoped_raw: list[dict] = []
+    if priority_domains:
+        site_clause = " OR ".join(f"site:{d}" for d in priority_domains[:4])
+        scoped_query = f"{base_query} ({site_clause})"
+        scoped_task = loop.run_in_executor(None, lambda: _fetch(scoped_query, 6))
+        general_task = loop.run_in_executor(None, lambda: _fetch(base_query, 10))
+        scoped_raw, general_raw = await asyncio.gather(scoped_task, general_task)
+    else:
+        general_raw = await loop.run_in_executor(None, lambda: _fetch(base_query, 10))
+
+    # Merge: scoped (trusted-domain) results first, then general; deduplicate by URL
+    seen: set[str] = set()
+    merged: list[dict] = []
+    for r in scoped_raw + general_raw:
+        url = r.get("href", "")
+        if url and url not in seen:
+            seen.add(url)
+            merged.append(r)
+
+    if not merged:
         return "Web search returned no results. Please rely on the knowledge base for this query."
 
-    # Sort by trust score descending
-    scored = sorted(raw, key=lambda r: _trust_score(r.get("href", "")), reverse=True)
+    # Final sort: trusted-domain results rise to top
+    scored = sorted(merged, key=lambda r: _trust_score(r.get("href", "")), reverse=True)
 
     parts = []
-    for r in scored[:6]:
+    for r in scored[:7]:
         title = r.get("title", "").strip()
         url = r.get("href", "").strip()
         body = r.get("body", "").strip()
@@ -314,5 +388,5 @@ async def search_web(query: str) -> str:
         badge = " [Trusted source]" if trust == 2 else (" [.lk source]" if trust == 1 else "")
         parts.append(f"**{title}**{badge}\nURL: {url}\n{body}")
 
-    header = f'Web search results for: "{search_query}"\n\n'
+    header = f'Web search results for: "{base_query}"\n\n'
     return header + "\n\n---\n\n".join(parts)
