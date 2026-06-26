@@ -49,16 +49,10 @@ _TRUSTED_DOMAINS = {
     "linkedin.com", "wes.org",
 }
 
-# Topic → priority trusted domains to scope-search first
+# Topic → priority trusted domains to scope-search first.
+# Ordered from most-specific to most-general so the first match wins.
 _TOPIC_PRIORITY: list[tuple[list[str], list[str]]] = [
-    (
-        ["salary", "pay", "wage", "earning", "income", "remuneration"],
-        ["topjobs.lk", "jobs.lk", "lmd.lk", "dailyft.lk"],
-    ),
-    (
-        ["employment", "labour", "labor", "workforce", "job market", "unemployment", "statistic", "survey"],
-        ["statistics.gov.lk", "labourdept.gov.lk", "worldbank.org", "ilo.org"],
-    ),
+    # Professional body accreditation
     (
         ["iesl", "chartered engineer", "engineering accredit", "professional engineer"],
         ["iesl.lk", "ugc.ac.lk"],
@@ -68,28 +62,55 @@ _TOPIC_PRIORITY: list[tuple[list[str], list[str]]] = [
         ["slmc.lk", "ugc.ac.lk"],
     ),
     (
-        ["scholarship", "bursary", "mahapola", "stipend", "study abroad fund"],
-        ["scholarship.gov.lk", "mohe.gov.lk", "ugc.ac.lk"],
-    ),
-    (
-        ["ranking", "world rank", "qs rank", "times higher"],
-        ["topuniversities.com", "timeshighereducation.com", "webometrics.info"],
-    ),
-    (
         ["acca", "cima", "accountan", "icasl", "chartered accountant"],
         ["accaglobal.com", "cimaglobal.com", "icasl.lk"],
     ),
+    # Scholarships / funding
     (
-        ["it sector", "software industry", "tech industry", "icta", "export"],
-        ["icta.lk", "dailyft.lk", "worldbank.org"],
+        ["scholarship", "bursary", "mahapola", "stipend", "study abroad fund"],
+        ["scholarship.gov.lk", "mohe.gov.lk", "ugc.ac.lk"],
     ),
+    # Postgraduate / further study
     (
-        ["tourism", "hotel", "hospitality"],
+        ["postgrad", "masters", "msc", "mba", "phd", "study abroad", "overseas", "further study"],
+        ["ugc.ac.lk", "topuniversities.com", "scholarship.gov.lk", "mohe.gov.lk"],
+    ),
+    # University rankings
+    (
+        ["ranking", "world rank", "qs rank", "times higher", "best university"],
+        ["topuniversities.com", "timeshighereducation.com", "webometrics.info"],
+    ),
+    # Salary / pay
+    (
+        ["salary", "pay", "wage", "earning", "income", "remuneration", "how much"],
+        ["topjobs.lk", "jobs.lk", "lmd.lk", "dailyft.lk"],
+    ),
+    # Labour market statistics
+    (
+        ["employment rate", "unemployment", "labour force", "workforce statistic", "survey"],
+        ["statistics.gov.lk", "labourdept.gov.lk", "worldbank.org", "ilo.org"],
+    ),
+    # IT / tech sector
+    (
+        ["it sector", "software industry", "tech industry", "icta", "it export", "software job"],
+        ["icta.lk", "dailyft.lk", "worldbank.org", "topjobs.lk"],
+    ),
+    # Tourism / hospitality
+    (
+        ["tourism", "hotel", "hospitality", "sltda"],
         ["sltda.gov.lk", "dailyft.lk", "worldbank.org"],
     ),
+    # Economy / investment
     (
-        ["industry", "sector", "market", "gdp", "economy", "growth", "investment"],
+        ["industry growth", "sector growth", "gdp", "economy", "investment", "boi"],
         ["worldbank.org", "adb.org", "cbsl.gov.lk", "boi.lk", "dailyft.lk"],
+    ),
+    # Career paths / job opportunities — catches the most common student questions
+    # ("what career", "job after", "what can I do", "prospects", "future", "work as")
+    (
+        ["career", "job", "work", "profession", "prospect", "future", "opportunit",
+         "employ", "hire", "demand for", "what can i", "what will i"],
+        ["topjobs.lk", "jobs.lk", "dailyft.lk", "lmd.lk", "worldbank.org"],
     ),
 ]
 
