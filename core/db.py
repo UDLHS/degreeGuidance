@@ -5,6 +5,8 @@
 `AsyncSessionLocal` is the session factory used in FastAPI endpoints and worker jobs.
 """
 
+import ssl
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -19,10 +21,15 @@ class Base(DeclarativeBase):
     """Base class all ORM models inherit from."""
 
 
+_connect_args = (
+    {"ssl": ssl.create_default_context()} if settings.environment == "production" else {}
+)
+
 engine = create_async_engine(
     settings.database_url,
     echo=False,
     pool_pre_ping=True,
+    connect_args=_connect_args,
 )
 
 
