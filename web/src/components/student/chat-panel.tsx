@@ -55,6 +55,7 @@ export function ChatPanel({ context }: ChatPanelProps) {
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [webSearch, setWebSearch] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -84,6 +85,7 @@ export function ChatPanel({ context }: ChatPanelProps) {
           conversation_id: conversationId,
           message: text,
           context: context ?? null,
+          web_search: webSearch,
         }),
       });
 
@@ -217,6 +219,18 @@ export function ChatPanel({ context }: ChatPanelProps) {
           {/* Input */}
           <div className="border-t border-[#e9eef6] px-4 py-3">
             <div className="flex items-end gap-2 rounded-[14px] border-[1.5px] border-[#e3e9f2] bg-[#f9fafc] px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setWebSearch((v) => !v)}
+                title={webSearch ? "Web search on" : "Web search off"}
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-colors"
+                style={{ background: webSearch ? ACCENT : "#e3e9f2" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" />
+                  <path d="M12 2C12 2 8 7 8 12s4 10 4 10M12 2c0 0 4 5 4 10s-4 10-4 10M2 12h20" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
               <textarea
                 ref={inputRef}
                 rows={1}

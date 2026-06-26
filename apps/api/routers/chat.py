@@ -43,6 +43,7 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = Field(default=None)
     message: str = Field(..., min_length=1, max_length=2000)
     context: dict[str, Any] | None = Field(default=None)
+    web_search: bool = Field(default=True)
 
 
 class ChatResponse(BaseModel):
@@ -94,6 +95,7 @@ async def post_chat(
             history=history,
             new_message=payload.message,
             context=payload.context,
+            web_search=payload.web_search,
         )
     except Exception as exc:
         raise HTTPException(

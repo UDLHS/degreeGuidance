@@ -296,6 +296,7 @@ async def chat(
     history: list[dict[str, str]],
     new_message: str,
     context: dict[str, Any] | None = None,
+    web_search: bool = True,
 ) -> tuple[str, list[str]]:
     """Run the agentic loop. Returns (reply_text, tools_used_names)."""
 
@@ -311,8 +312,13 @@ async def chat(
 
     tools_used: list[str] = []
 
+    declarations = (
+        FUNCTION_DECLARATIONS
+        if web_search
+        else [d for d in FUNCTION_DECLARATIONS if d.name != "search_web"]
+    )
     tool_config = [
-        types.Tool(function_declarations=FUNCTION_DECLARATIONS),
+        types.Tool(function_declarations=declarations),
     ]
 
     config = types.GenerateContentConfig(
