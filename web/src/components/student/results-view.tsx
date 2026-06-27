@@ -38,15 +38,47 @@ const DIMENSION_LABEL: Record<string, string> = {
   university: "University preference",
   interest: "Interest fit",
   career: "Career fit",
-  industry: "Industry fit",
+  industry: "Industry demand",
 };
+
+const DIMENSION_DESC: Record<string, string> = {
+  z_margin:   "How safely your score clears the cutoff",
+  university: "Matches your preferred universities",
+  interest:   "Content aligns with what you described",
+  career:     "Career paths this degree leads to",
+  industry:   "Job-market demand for this sector in Sri Lanka",
+};
+
 const DIMENSION_COLOR: Record<string, string> = {
-  z_margin: "#2b5fd0",
-  university: "#0f9aa6",
-  interest: "#7a5cd6",
-  career: "#7a5cd6",
-  industry: "#7a5cd6",
+  z_margin:   "#2b5fd0",   // blue
+  university: "#0f9aa6",   // teal
+  interest:   "#7a5cd6",   // purple
+  career:     "#16a06b",   // green
+  industry:   "#d97706",   // amber
 };
+
+// Dimensions that can legitimately score 0 as an *active mismatch* signal
+// (not just "inert / not applicable"). When raw_score === 0 for these, the
+// student DID express a preference but this course doesn't match it.
+const MISMATCH_DIMS = new Set(["career", "industry"]);
+
+function whyRankedHere(breakdown: { name: string; raw_score: number; contribution: number }[]): string | null {
+  const chips: string[] = [];
+  // Career match — explicit goal alignment
+  const career = breakdown.find((d) => d.name === "career");
+  if (career && career.raw_score >= 0.5) chips.push("Career match");
+  // Industry demand / sector alignment
+  const industry = breakdown.find((d) => d.name === "industry");
+  if (industry && industry.raw_score >= 0.75) chips.push("High-demand sector");
+  else if (industry && industry.raw_score >= 0.5) chips.push("Growing sector");
+  // Interest content fit
+  const interest = breakdown.find((d) => d.name === "interest");
+  if (interest && interest.raw_score >= 0.4) chips.push("Interest fit");
+  // University preference
+  const uni = breakdown.find((d) => d.name === "university");
+  if (uni && uni.raw_score >= 1.0) chips.push("Preferred university");
+  return chips.length ? chips.join(" · ") : null;
+}
 
 export function ResultsView({
   results,
@@ -226,29 +258,58 @@ function CourseCard({ d, accent }: { d: ScoredRecommendation; accent: string }) 
 
       <div className="mt-[22px] flex flex-wrap gap-[30px] border-t border-[#eef2f8] pt-[22px]">
         <div className="min-w-[260px] flex-1">
-          <div className="mb-[14px] text-xs font-bold uppercase tracking-[.5px] text-[#9aa7be]">
-            Score breakdown
+          <div className="mb-[14px] flex items-center justify-between">
+            <div className="text-xs font-bold uppercase tracking-[.5px] text-[#9aa7be]">
+              Score breakdown
+            </div>
+            {(() => {
+              const why = whyRankedHere(d.breakdown);
+              return why ? (
+                <div className="text-[11.5px] font-semibold text-[#7c89a0]">{why}</div>
+              ) : null;
+            })()}
           </div>
-          <div className="flex flex-col gap-[13px]">
-            {d.breakdown.map((bar) => (
-              <div key={bar.name}>
-                <div className="mb-[5px] flex justify-between text-[13.5px]">
-                  <span className="font-semibold text-[#44546f]">
-                    {DIMENSION_LABEL[bar.name] ?? bar.name}
-                  </span>
-                  <span className="font-bold tabular-nums">{Math.round(bar.raw_score * 100)}%</span>
+          <div className="flex flex-col gap-[14px]">
+            {d.breakdown.map((bar) => {
+              const isMismatch = MISMATCH_DIMS.has(bar.name) && bar.raw_score === 0;
+              const color = DIMENSION_COLOR[bar.name] ?? accent;
+              return (
+                <div key={bar.name}>
+                  <div className="mb-[4px] flex items-baseline justify-between text-[13px]">
+                    <span className="font-semibold text-[#44546f]">
+                      {DIMENSION_LABEL[bar.name] ?? bar.name}
+                    </span>
+                    {isMismatch ? (
+                      <span className="text-[12px] font-semibold text-[#b07407]">Not matched</span>
+                    ) : (
+                      <span className="font-bold tabular-nums" style={{ color }}>
+                        {Math.round(bar.raw_score * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  {DIMENSION_DESC[bar.name] ? (
+                    <div className="mb-[6px] text-[11.5px] text-[#aab5c8]">
+                      {DIMENSION_DESC[bar.name]}
+                    </div>
+                  ) : null}
+                  {isMismatch ? (
+                    <div className="h-[6px] overflow-hidden rounded-full bg-[#eef2f8]">
+                      <div className="h-full w-0 rounded-full" />
+                    </div>
+                  ) : (
+                    <div className="h-[6px] overflow-hidden rounded-full bg-[#eef2f8]">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-500"
+                        style={{
+                          width: `${Math.round(bar.raw_score * 100)}%`,
+                          background: color,
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="h-[7px] overflow-hidden rounded-full bg-[#eef2f8]">
-                  <div
-                    className="h-full rounded-full transition-[width] duration-500"
-                    style={{
-                      width: `${Math.round(bar.raw_score * 100)}%`,
-                      background: DIMENSION_COLOR[bar.name] ?? accent,
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
