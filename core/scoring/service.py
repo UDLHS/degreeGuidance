@@ -32,6 +32,224 @@ from core.schemas.recommendation import (
 from core.scoring.config import load_active_config
 from core.scoring.engine import ScorableCourse, ScoringProfile, score_courses
 
+# ---------------------------------------------------------------------------
+# Career / industry tag extraction from free-form interest text
+# ---------------------------------------------------------------------------
+
+# Maps keywords found in student interest text → canonical career tags.
+# Substring match (case-insensitive) against the student's interest field.
+_CAREER_KEYWORDS: list[tuple[list[str], list[str]]] = [
+    # IT / Software
+    (["software engineer", "programmer", "coding", "code", "software dev"],
+     ["software engineer"]),
+    (["web developer", "web dev", "frontend", "backend", "full stack"],
+     ["web developer"]),
+    (["mobile app", "android", "ios developer"],
+     ["mobile app developer"]),
+    (["data scientist", "data science", "machine learning", "ml engineer", "ai engineer",
+      "artificial intelligence"],
+     ["data scientist", "ai engineer"]),
+    (["data analyst", "data analysis", "business intelligence"],
+     ["data analyst"]),
+    (["cybersecurity", "cyber security", "security engineer", "ethical hacker"],
+     ["cybersecurity analyst"]),
+    (["devops", "cloud engineer", "cloud architect"],
+     ["devops engineer", "cloud engineer"]),
+    (["network engineer", "network admin", "network administrator"],
+     ["network engineer"]),
+    (["software tester", "qa engineer", "quality assurance engineer"],
+     ["qa engineer"]),
+    (["ui/ux", "ux designer", "user experience"],
+     ["ui/ux designer"]),
+    # Engineering
+    (["civil engineer", "structural engineer", "construction engineer"],
+     ["civil engineer"]),
+    (["mechanical engineer", "machine design"],
+     ["mechanical engineer"]),
+    (["electrical engineer", "electronics engineer"],
+     ["electrical engineer"]),
+    (["chemical engineer", "process engineer"],
+     ["chemical engineer"]),
+    (["marine engineer", "naval architect", "shipbuilding"],
+     ["marine engineer"]),
+    (["engineering", "engineer"],
+     ["engineer"]),
+    # Healthcare
+    (["doctor", "physician", "mbbs", "medical officer", "medicine"],
+     ["medical officer", "doctor"]),
+    (["surgeon", "surgery"],
+     ["surgeon"]),
+    (["dentist", "dental", "orthodontist"],
+     ["dental surgeon"]),
+    (["nurse", "nursing"],
+     ["nurse", "nursing officer"]),
+    (["pharmacist", "pharmacy"],
+     ["pharmacist"]),
+    (["physiotherapist", "physiotherapy"],
+     ["physiotherapist"]),
+    (["occupational therapist", "occupational therapy"],
+     ["occupational therapist"]),
+    (["speech therapist", "audiologist", "speech and hearing"],
+     ["speech therapist"]),
+    (["optometrist", "optometry"],
+     ["optometrist"]),
+    (["radiographer", "radiology", "imaging technologist"],
+     ["radiographer"]),
+    (["medical laboratory", "lab scientist", "lab technologist"],
+     ["medical laboratory scientist"]),
+    (["public health", "health promotion", "epidemiologist"],
+     ["public health officer"]),
+    (["ayurveda", "ayurvedic"],
+     ["ayurveda medical officer"]),
+    # Business / Management
+    (["accountant", "accounting", "auditor", "auditing"],
+     ["accountant", "auditor"]),
+    (["financial analyst", "finance analyst", "investment analyst"],
+     ["financial analyst"]),
+    (["marketing executive", "marketing manager", "brand manager", "digital marketing"],
+     ["marketing executive", "brand manager"]),
+    (["human resource", "hr manager", "hr executive", "talent acquisition"],
+     ["human resource officer"]),
+    (["entrepreneur", "business owner", "startup", "self-employed"],
+     ["entrepreneur"]),
+    (["manager", "management trainee", "business analyst", "operations manager"],
+     ["management trainee"]),
+    # Law
+    (["lawyer", "attorney", "barrister", "solicitor", "legal"],
+     ["attorney-at-law"]),
+    (["judge", "judiciary"],
+     ["judge"]),
+    # Education
+    (["teacher", "school teacher", "tutor", "educator"],
+     ["teacher"]),
+    (["lecturer", "professor", "academic"],
+     ["lecturer"]),
+    # Agriculture
+    (["agricultural officer", "agronomist", "agronomy", "plantation manager"],
+     ["agriculture officer", "agronomist"]),
+    (["food technologist", "food scientist", "food technology"],
+     ["food technologist"]),
+    # Research
+    (["researcher", "research officer", "scientist", "research scientist"],
+     ["research officer"]),
+    # Architecture / Design
+    (["architect", "architecture"],
+     ["architect"]),
+    (["quantity surveyor", "qs"],
+     ["quantity surveyor"]),
+    (["designer", "graphic designer", "industrial designer"],
+     ["designer"]),
+    (["fashion designer", "textile"],
+     ["fashion designer"]),
+    # Journalism / Media
+    (["journalist", "reporter", "news anchor", "media"],
+     ["journalist"]),
+    (["content writer", "editor", "copywriter"],
+     ["content writer"]),
+    # Social / NGO
+    (["social worker", "community development", "ngo"],
+     ["social worker"]),
+    # Tourism / Hospitality
+    (["hotel manager", "hotel", "resort manager"],
+     ["hotel manager"]),
+    (["travel", "tourism officer", "tour guide"],
+     ["tourism officer"]),
+    # Sports
+    (["sports", "coach", "fitness trainer", "personal trainer"],
+     ["sports coach"]),
+    # Logistics
+    (["supply chain", "logistics", "operations"],
+     ["supply chain manager"]),
+]
+
+# Maps keywords → canonical industry tags.
+_INDUSTRY_KEYWORDS: list[tuple[list[str], list[str]]] = [
+    (["software", "it sector", "information technology", "tech", "coding", "programming",
+      "developer", "computer science", "data", "cybersecurity", "cloud", "devops",
+      "artificial intelligence", "machine learning", "ai", "startup"],
+     ["it"]),
+    (["healthcare", "hospital", "medical", "clinic", "health", "doctor", "nurse",
+      "medicine", "pharmacy", "pharmaceutical", "dental"],
+     ["healthcare"]),
+    (["engineering", "construction", "civil", "structural", "mechanical",
+      "electrical", "electronics", "manufacturing"],
+     ["engineering"]),
+    (["bank", "banking", "finance", "investment", "stock market", "financial",
+      "fintech", "insurance", "accounting", "audit", "tax"],
+     ["banking", "finance"]),
+    (["law", "legal", "court", "attorney", "judiciary"],
+     ["law"]),
+    (["teach", "school", "university", "education", "training", "lecturer"],
+     ["education"]),
+    (["research", "r&d", "laboratory", "scientist"],
+     ["research"]),
+    (["agriculture", "farming", "plantation", "agronomist", "agribusiness", "food security"],
+     ["agriculture"]),
+    (["food", "fmcg", "food processing", "food industry"],
+     ["food"]),
+    (["tourism", "hotel", "hospitality", "travel", "resort", "leisure"],
+     ["tourism", "hospitality"]),
+    (["telecom", "telecommunications", "mobile network", "broadband"],
+     ["telecommunications"]),
+    (["media", "tv", "radio", "newspaper", "broadcasting", "journalism"],
+     ["media"]),
+    (["marketing", "advertising", "brand", "pr", "public relations", "digital marketing"],
+     ["advertising", "digital marketing"]),
+    (["ngo", "non-governmental", "un ", "unicef", "undp", "international development",
+      "community", "social work"],
+     ["ngo"]),
+    (["government", "public sector", "civil service", "ministry", "state"],
+     ["government"]),
+    (["energy", "electricity", "power", "renewable", "solar", "wind"],
+     ["energy"]),
+    (["environment", "conservation", "sustainability", "green", "eco"],
+     ["environment"]),
+    (["logistics", "supply chain", "shipping", "port", "aviation", "freight"],
+     ["logistics"]),
+    (["arts", "performing arts", "theatre", "dance", "music", "film", "cinema", "visual arts"],
+     ["arts"]),
+    (["sports", "fitness", "gym", "athletic"],
+     ["sports"]),
+    (["defence", "military", "army", "navy", "air force"],
+     ["defence"]),
+    (["fisheries", "aquaculture", "marine", "fishery", "ocean"],
+     ["fisheries", "marine"]),
+]
+
+
+def _kw_matches(keyword: str, text: str) -> bool:
+    """True if keyword appears in text.
+
+    Short keywords (≤4 chars, e.g. "ai", "it", "eco", "qs") are matched on
+    whole-word boundaries to avoid false positives like "ai" matching "painting"
+    or "eco" matching "become". Longer phrases use plain substring search.
+    """
+    if len(keyword) <= 4:
+        return bool(re.search(r"\b" + re.escape(keyword) + r"\b", text))
+    return keyword in text
+
+
+def _extract_tags_from_text(text_input: str) -> tuple[list[str], list[str]]:
+    """Extract career_tags and industry_tags from student's free-text interest field.
+
+    Uses keyword matching (word-boundary-safe for short keywords) — no LLM,
+    deterministic, fast.
+    Returns (career_tags, industry_tags) as lowercase lists without duplicates.
+    """
+    lower = text_input.lower()
+    career: set[str] = set()
+    industry: set[str] = set()
+
+    for keywords, tags in _CAREER_KEYWORDS:
+        if any(_kw_matches(kw, lower) for kw in keywords):
+            career.update(tags)
+
+    for keywords, tags in _INDUSTRY_KEYWORDS:
+        if any(_kw_matches(kw, lower) for kw in keywords):
+            industry.update(tags)
+
+    return sorted(career), sorted(industry)
+
 _gemini_client: genai.Client | None = None
 
 
@@ -149,14 +367,23 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
     district_id = await _resolve_district_id(session, req.district_code.strip().upper())
     stream_id = await _resolve_stream_id(session, req.stream_code.strip().upper())
 
+    # Extract career/industry tags from the student's interest text if they
+    # didn't explicitly send structured tags (which the UI doesn't yet do).
+    career_tags = list(req.career_tags)
+    industry_tags = list(req.industry_tags)
+    if req.interests and req.interests.strip() and not career_tags and not industry_tags:
+        career_tags, industry_tags = _extract_tags_from_text(req.interests)
+
     profile = ScoringProfile(
         z_score=req.z_score,
         district_id=district_id,
         preferred_university_codes=frozenset(req.preferred_university_codes),
         interests=req.interests,
-        career_tags=frozenset(req.career_tags),
-        industry_tags=frozenset(req.industry_tags),
+        career_tags=frozenset(career_tags),
+        industry_tags=frozenset(industry_tags),
     )
+
+    result_codes = [it.course_code for it in elig.results]
 
     # Pre-compute interest scores via pgvector when student typed interests
     interest_map: dict[str, float] = {}
@@ -164,8 +391,24 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
         interest_map = await _interest_scores(
             session,
             req.interests,
-            [it.course_code for it in elig.results],
+            result_codes,
         )
+
+    # Bulk-fetch career_tags and industry_tags for all eligible courses in one query.
+    course_tag_rows = (
+        await session.execute(
+            text(
+                "SELECT course_code, career_tags, industry_tags "
+                "FROM courses WHERE course_code = ANY(:codes)"
+            ),
+            {"codes": result_codes},
+        )
+    ).all()
+    course_career_map: dict[str, frozenset[str]] = {}
+    course_industry_map: dict[str, frozenset[str]] = {}
+    for row in course_tag_rows:
+        course_career_map[row.course_code] = frozenset(row.career_tags or [])
+        course_industry_map[row.course_code] = frozenset(row.industry_tags or [])
 
     scorables = [
         ScorableCourse(
@@ -175,6 +418,8 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
             university_code=it.university_code,
             university_district_id=it.university_district_id,
             interest_score=interest_map.get(it.course_code),
+            career_tags=course_career_map.get(it.course_code, frozenset()),
+            industry_tags=course_industry_map.get(it.course_code, frozenset()),
         )
         for it in elig.results
     ]
@@ -182,7 +427,6 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
     item_by_code = {it.course_code: it for it in elig.results}
 
     # Bulk-fetch eligible stream codes for every result in one query.
-    result_codes = [it.course_code for it in elig.results]
     stream_rows = (
         await session.execute(
             text(
