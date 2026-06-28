@@ -58,12 +58,15 @@ const STREAM_ICONS: Record<string, React.ReactNode> = {
 };
 
 type View = "flow" | "results";
+type Tab = "results" | "chat";
 
 export function GuidanceFlow() {
   const [reference, setReference] = useState<ReferenceData | null>(null);
   const [refError, setRefError] = useState(false);
 
   const [view, setView] = useState<View>("flow");
+  const [activeTab, setActiveTab] = useState<Tab>("results");
+  const [chatKey, setChatKey] = useState(0);
   const [step, setStep] = useState(0);
   const [zScore, setZScore] = useState(1.5);
   const [districtCode, setDistrictCode] = useState<string | null>(null);
@@ -100,7 +103,7 @@ export function GuidanceFlow() {
     setLoading(true);
     setSubmitError(null);
     const payload: RecommendationRequest = {
-      z_score: Math.round(zScore * 100) / 100,
+      z_score: zScore,
       district_code: districtCode,
       stream_code: streamCode,
       subjects: filledSubjects,
@@ -122,6 +125,7 @@ export function GuidanceFlow() {
       const data: RecommendationResponse = await res.json();
       setResults(data);
       setView("results");
+      setActiveTab("results");
       window.scrollTo(0, 0);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
@@ -151,6 +155,7 @@ export function GuidanceFlow() {
     window.scrollTo(0, 0);
     setView("flow");
     setStep(0);
+    setActiveTab("results");
   }
 
   const stepValid = !(
@@ -313,31 +318,76 @@ export function GuidanceFlow() {
         </main>
       ) : results ? (
         <>
-          <ResultsView
-            results={results}
-            zScore={zScore}
-            districtName={districtName}
-            streamName={streamName}
-            onEdit={edit}
-            accent={ACCENT}
-          />
-          <ChatPanel
-            context={{
-              z_score: zScore,
-              district_code: districtCode ?? undefined,
-              stream_code: streamCode ?? undefined,
-              subjects: subjects.filter((s): s is SubjectInput => s !== null),
-              interests: interests.trim() || undefined,
-              eligible_courses: results.recommendations.map((r) => ({
-                course_code: r.course_code,
-                course_name: r.course_name,
-                university: r.university_name,
-                cutoff: r.cutoff_z_score,
-                margin: r.student_margin,
-                bucket: r.bucket,
-              })),
-            }}
-          />
+          {/* ── Tab bar ─────────────────────────────────────────────────── */}
+          <div className="sticky top-[69px] z-30 border-b border-[#e3e9f2] bg-white">
+            <div className="mx-auto flex max-w-[1120px] px-6">
+              {(["results", "chat"] as Tab[]).map((tab) => {
+                const active = activeTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className="flex items-center gap-2 border-b-2 px-5 py-[14px] text-[14px] font-semibold transition-colors"
+                    style={{
+                      borderColor: active ? ACCENT : "transparent",
+                      color: active ? ACCENT : "#7c89a0",
+                    }}
+                  >
+                    {tab === "results" ? (
+                      <>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                          <path d="M9 11l3 3L22 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Results
+                      </>
+                    ) : (
+                      <>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+                          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Chat with AI Advisor
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ── Tab content ─────────────────────────────────────────────── */}
+          {activeTab === "results" && (
+            <ResultsView
+              results={results}
+              zScore={zScore}
+              districtName={districtName}
+              streamName={streamName}
+              onEdit={edit}
+              accent={ACCENT}
+            />
+          )}
+          {activeTab === "chat" && (
+            <ChatPanel
+              key={chatKey}
+              inline
+              onNewChat={() => setChatKey((k) => k + 1)}
+              context={{
+                z_score: zScore,
+                district_code: districtCode ?? undefined,
+                stream_code: streamCode ?? undefined,
+                subjects: subjects.filter((s): s is SubjectInput => s !== null),
+                interests: interests.trim() || undefined,
+                eligible_courses: results.recommendations.map((r) => ({
+                  course_code: r.course_code,
+                  course_name: r.course_name,
+                  university: r.university_name,
+                  cutoff: r.cutoff_z_score,
+                  margin: r.student_margin,
+                  bucket: r.bucket,
+                })),
+              }}
+            />
+          )}
         </>
       ) : null}
     </div>
@@ -364,7 +414,25 @@ function ZScoreStep({
   onChange: (v: number) => void;
   accent: string;
 }) {
-  const pct = ((value + 1) / 4) * 100;
+  const [inputStr, setInputStr] = useState(value.toFixed(4));
+  const [inputError, setInputError] = useState<string | null>(null);
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const str = e.target.value;
+    setInputStr(str);
+    const num = parseFloat(str);
+    if (isNaN(num)) {
+      setInputError("Enter a valid number");
+      return;
+    }
+    if (num < -1 || num > 3) {
+      setInputError("Z-score must be between −1.0000 and 3.0000");
+      return;
+    }
+    setInputError(null);
+    onChange(num);
+  }
+
   return (
     <section>
       <StepKicker step={1} accent={accent} />
@@ -372,49 +440,29 @@ function ZScoreStep({
         What is your Z-score?
       </h1>
       <p className="mb-11 max-w-[520px] text-[17px] leading-[1.55] text-[#5b6b85]">
-        Enter the Z-score from your G.C.E. A/L results. It determines which university programmes
-        you&apos;re eligible for.
+        Enter the Z-score exactly as it appears on your G.C.E. A/L results sheet. It determines
+        which university programmes you&apos;re eligible for.
       </p>
       <div className="rounded-[22px] border border-[#e3e9f2] bg-white p-10 shadow-[0_1px_3px_rgba(20,36,59,.04)]">
-        <div className="flex items-center justify-center gap-7">
-          <button
-            onClick={() => onChange(Math.max(-1, Math.round((value - 0.01) * 100) / 100))}
-            className="h-12 w-12 flex-shrink-0 rounded-full border-[1.5px] border-[#e3e9f2] text-2xl font-semibold text-[#44546f]"
-          >
-            −
-          </button>
-          <div
-            className="min-w-[200px] text-center font-[family-name:var(--font-newsreader)] text-7xl font-medium tracking-[-2px] tabular-nums sm:text-8xl"
-            style={{ color: accent }}
-          >
-            {value.toFixed(2)}
-          </div>
-          <button
-            onClick={() => onChange(Math.min(3, Math.round((value + 0.01) * 100) / 100))}
-            className="h-12 w-12 flex-shrink-0 rounded-full border-[1.5px] border-[#e3e9f2] text-2xl font-semibold text-[#44546f]"
-          >
-            +
-          </button>
-        </div>
-        <input
-          type="range"
-          min={-1}
-          max={3}
-          step={0.01}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="my-[34px] w-full"
-          style={{
-            background: `linear-gradient(90deg,${accent} ${pct}%,#e3e9f2 ${pct}%)`,
-            height: 6,
-            borderRadius: 999,
-            appearance: "none",
-          }}
-        />
-        <div className="flex justify-between text-[13px] font-medium text-[#9aa7be]">
-          <span>−1.00</span>
-          <span>1.00</span>
-          <span>3.00</span>
+        <div className="flex flex-col items-center gap-3">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={inputStr}
+            onChange={handleChange}
+            placeholder="e.g. 1.8540"
+            className="w-full max-w-[320px] rounded-[16px] border-[2px] px-6 py-4 text-center font-[family-name:var(--font-newsreader)] text-6xl font-medium tracking-[-1px] tabular-nums outline-none transition-colors sm:text-7xl"
+            style={{
+              color: inputError ? "#b4485f" : accent,
+              borderColor: inputError ? "#f0c4cc" : "#e3e9f2",
+              caretColor: accent,
+            }}
+          />
+          {inputError ? (
+            <p className="text-[13.5px] font-semibold text-[#b4485f]">{inputError}</p>
+          ) : (
+            <p className="text-[13px] text-[#9aa7be]">Valid range: −1.0000 to 3.0000</p>
+          )}
         </div>
         <div className="mt-[26px] border-t border-dashed border-[#e3e9f2] pt-[22px] text-center text-[14.5px] leading-[1.5] text-[#7c89a0]">
           Eligibility is checked against the real, verified 2023 cutoffs for every course in your

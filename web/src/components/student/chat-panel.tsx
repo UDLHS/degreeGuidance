@@ -30,6 +30,10 @@ interface ChatContext {
 
 interface ChatPanelProps {
   context?: ChatContext;
+  /** When true: renders as a full-height inline view instead of a floating overlay. */
+  inline?: boolean;
+  /** Called when the user clicks "New Chat" in inline mode. */
+  onNewChat?: () => void;
 }
 
 function getSessionId(): string {
@@ -42,7 +46,7 @@ function getSessionId(): string {
   return id;
 }
 
-export function ChatPanel({ context }: ChatPanelProps) {
+export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -119,9 +123,134 @@ export function ChatPanel({ context }: ChatPanelProps) {
     }
   }
 
+  // ── Shared sub-components ─────────────────────────────────────────────────
+
+  const chatHeader = (
+    <div className="flex items-center gap-3 px-5 py-4" style={{ background: ACCENT }}>
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L3 7l9 5 9-5-9-5z" fill="#fff" />
+          <path d="M3 12l9 5 9-5M3 17l9 5 9-5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div className="flex-1">
+        <div className="text-[14px] font-bold text-white">Degree Guide AI</div>
+        <div className="text-[11px] text-white/70">Powered by Gemini</div>
+      </div>
+      {inline && onNewChat && (
+        <button
+          onClick={onNewChat}
+          className="flex items-center gap-[6px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+          New Chat
+        </button>
+      )}
+    </div>
+  );
+
+  const messageList = (
+    <div className="flex-1 overflow-y-auto px-4 py-4" style={{ gap: 12, display: "flex", flexDirection: "column" }}>
+      {messages.map((msg, i) => (
+        <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+          <div
+            className="max-w-[85%] rounded-[16px] px-4 py-[10px] text-[14px] leading-[1.55]"
+            style={
+              msg.role === "user"
+                ? { background: ACCENT, color: "#fff", borderBottomRightRadius: 4 }
+                : { background: "#f4f6fb", color: "#16243b", borderBottomLeftRadius: 4 }
+            }
+          >
+            <MessageContent content={msg.content} />
+          </div>
+          {msg.tools && msg.tools.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {msg.tools.map((t) => (
+                <span key={t} className="rounded-full px-2 py-[2px] text-[10px] font-semibold" style={{ background: "#e8eef8", color: "#4a6fa5" }}>
+                  {t.replace(/_/g, " ")}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      {loading && (
+        <div className="flex items-start">
+          <div className="rounded-[16px] px-4 py-[10px]" style={{ background: "#f4f6fb", borderBottomLeftRadius: 4 }}>
+            <Dots />
+          </div>
+        </div>
+      )}
+      {error && <p className="text-center text-[12px] text-[#b4485f]">{error}</p>}
+      <div ref={bottomRef} />
+    </div>
+  );
+
+  const inputBar = (
+    <div className="border-t border-[#e9eef6] px-4 py-3">
+      <div className="flex items-end gap-2 rounded-[14px] border-[1.5px] border-[#e3e9f2] bg-[#f9fafc] px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setWebSearch((v) => !v)}
+          title={webSearch ? "Web search on" : "Web search off"}
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-colors"
+          style={{ background: webSearch ? ACCENT : "#e3e9f2" }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" />
+            <path d="M12 2C12 2 8 7 8 12s4 10 4 10M12 2c0 0 4 5 4 10s-4 10-4 10M2 12h20" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+        <textarea
+          ref={inputRef}
+          rows={1}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            e.target.style.height = "auto";
+            e.target.style.height = Math.min(e.target.scrollHeight, 96) + "px";
+          }}
+          onKeyDown={handleKey}
+          placeholder="Ask about any degree, cutoff, or career…"
+          disabled={loading}
+          className="flex-1 resize-none bg-transparent text-[14px] leading-[1.5] text-[#16243b] outline-none placeholder:text-[#9aa7be] disabled:opacity-50"
+          style={{ maxHeight: 96, minHeight: 22 }}
+        />
+        <button
+          onClick={send}
+          disabled={!input.trim() || loading}
+          className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40"
+          style={{ background: input.trim() && !loading ? ACCENT : "#cdd6e8" }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+            <path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <p className="mt-[6px] text-center text-[11px] text-[#b0baca]">
+        AI can make mistakes. Verify cutoffs at ugc.ac.lk.
+      </p>
+    </div>
+  );
+
+  // ── Inline mode (full-height tab) ─────────────────────────────────────────
+
+  if (inline) {
+    return (
+      <div className="flex flex-col" style={{ minHeight: "calc(100vh - 120px)" }}>
+        {chatHeader}
+        {messageList}
+        {inputBar}
+      </div>
+    );
+  }
+
+  // ── Floating mode (original behaviour, unchanged) ─────────────────────────
+
   return (
     <>
-      {/* Floating trigger button */}
       <button
         onClick={() => setOpen((o) => !o)}
         className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-[0_6px_24px_rgba(43,95,208,.35)] transition-transform hover:scale-105"
@@ -134,133 +263,19 @@ export function ChatPanel({ context }: ChatPanelProps) {
           </svg>
         ) : (
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
-              stroke="#fff"
-              strokeWidth="1.9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}
       </button>
 
-      {/* Chat panel */}
       {open && (
         <div
           className="fixed bottom-24 right-6 z-50 flex w-[380px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[22px] shadow-[0_16px_48px_rgba(22,36,59,.18)]"
           style={{ height: "520px", border: "1.5px solid #e3e9f2", background: "#fff" }}
         >
-          {/* Header */}
-          <div
-            className="flex items-center gap-3 px-5 py-4"
-            style={{ background: ACCENT }}
-          >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L3 7l9 5 9-5-9-5z" fill="#fff" />
-                <path d="M3 12l9 5 9-5M3 17l9 5 9-5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-[14px] font-bold text-white">Degree Guide AI</div>
-              <div className="text-[11px] text-white/70">Powered by Gemini</div>
-            </div>
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-4" style={{ gap: 12, display: "flex", flexDirection: "column" }}>
-            {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-              >
-                <div
-                  className="max-w-[85%] rounded-[16px] px-4 py-[10px] text-[14px] leading-[1.55]"
-                  style={
-                    msg.role === "user"
-                      ? { background: ACCENT, color: "#fff", borderBottomRightRadius: 4 }
-                      : { background: "#f4f6fb", color: "#16243b", borderBottomLeftRadius: 4 }
-                  }
-                >
-                  <MessageContent content={msg.content} />
-                </div>
-                {msg.tools && msg.tools.length > 0 && (
-                  <div className="mt-1 flex gap-1 flex-wrap">
-                    {msg.tools.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded-full px-2 py-[2px] text-[10px] font-semibold"
-                        style={{ background: "#e8eef8", color: "#4a6fa5" }}
-                      >
-                        {t.replace(/_/g, " ")}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-            {loading && (
-              <div className="flex items-start">
-                <div
-                  className="rounded-[16px] px-4 py-[10px]"
-                  style={{ background: "#f4f6fb", borderBottomLeftRadius: 4 }}
-                >
-                  <Dots />
-                </div>
-              </div>
-            )}
-            {error && (
-              <p className="text-center text-[12px] text-[#b4485f]">{error}</p>
-            )}
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Input */}
-          <div className="border-t border-[#e9eef6] px-4 py-3">
-            <div className="flex items-end gap-2 rounded-[14px] border-[1.5px] border-[#e3e9f2] bg-[#f9fafc] px-3 py-2">
-              <button
-                type="button"
-                onClick={() => setWebSearch((v) => !v)}
-                title={webSearch ? "Web search on" : "Web search off"}
-                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-colors"
-                style={{ background: webSearch ? ACCENT : "#e3e9f2" }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" />
-                  <path d="M12 2C12 2 8 7 8 12s4 10 4 10M12 2c0 0 4 5 4 10s-4 10-4 10M2 12h20" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              </button>
-              <textarea
-                ref={inputRef}
-                rows={1}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = Math.min(e.target.scrollHeight, 96) + "px";
-                }}
-                onKeyDown={handleKey}
-                placeholder="Ask about any degree, cutoff, or career…"
-                disabled={loading}
-                className="flex-1 resize-none bg-transparent text-[14px] leading-[1.5] text-[#16243b] outline-none placeholder:text-[#9aa7be] disabled:opacity-50"
-                style={{ maxHeight: 96, minHeight: 22 }}
-              />
-              <button
-                onClick={send}
-                disabled={!input.trim() || loading}
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40"
-                style={{ background: input.trim() && !loading ? ACCENT : "#cdd6e8" }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                  <path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            </div>
-            <p className="mt-[6px] text-center text-[11px] text-[#b0baca]">
-              AI can make mistakes. Verify cutoffs at ugc.ac.lk.
-            </p>
-          </div>
+          {chatHeader}
+          {messageList}
+          {inputBar}
         </div>
       )}
     </>
