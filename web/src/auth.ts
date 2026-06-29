@@ -9,7 +9,6 @@ const ADMIN_ROLES = new Set(["admin", "superadmin"]);
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
-  debug: true,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
