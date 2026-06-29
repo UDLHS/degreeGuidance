@@ -28,6 +28,7 @@ from sqlalchemy import select
 
 from core.config import settings
 from core.db import AsyncSessionLocal
+from core.ingestion.handbook_diff import compute_handbook_diff, record_changes
 from core.models import CourseAlias, IngestionRun
 from scripts.native_pdf_extractor.extract_cutoffs import (
     extract_handbook,
@@ -39,13 +40,17 @@ logger = logging.getLogger(__name__)
 
 def _extract_to_csv(
     pdf_path: str, aliases: dict[str, str], out_csv: str
-) -> tuple[int, int, list[int]]:
-    """Synchronous, CPU-bound extraction — call via asyncio.to_thread."""
+) -> tuple[dict, int, int, list[int]]:
+    """Synchronous, CPU-bound extraction — call via asyncio.to_thread.
+
+    Returns the raw cutoffs dict too (course_code -> district -> z-score) so the
+    diff stage can compare it against the DB without re-reading the CSV.
+    """
     cutoffs, pages = extract_handbook(pdf_path, aliases, verbose=False)
     write_wide_csv(cutoffs, out_csv, header_format="unicode")
     courses = len(cutoffs)
     cells = sum(len(districts) for districts in cutoffs.values())
-    return courses, cells, pages
+    return cutoffs, courses, cells, pages
 
 
 async def extract_pdf_job(ctx, *, run_id: str, pdf_path: str, exam_year: int) -> dict:
@@ -65,7 +70,7 @@ async def extract_pdf_job(ctx, *, run_id: str, pdf_path: str, exam_year: int) ->
         aliases = {a.alias_text: a.course_code for a in alias_rows}
 
         try:
-            courses, cells, pages = await asyncio.to_thread(
+            cutoffs, courses, cells, pages = await asyncio.to_thread(
                 _extract_to_csv, pdf_path, aliases, str(out_csv)
             )
             if cells == 0:
@@ -75,9 +80,20 @@ async def extract_pdf_job(ctx, *, run_id: str, pdf_path: str, exam_year: int) ->
                 run.status = final_status = "success"
                 run.records_processed = cells
                 run.records_failed = 0
+                # Diff the extracted book against the live DB and stage the
+                # change-set for admin review. A diff failure must NOT fail the
+                # extraction — the CSV is already valid and promotable.
+                change_note = ""
+                try:
+                    changes = await compute_handbook_diff(db, cutoffs, exam_year)
+                    n = await record_changes(db, run.run_id, changes)
+                    change_note = f"; {n} changes for review"
+                except Exception as diff_exc:  # noqa: BLE001
+                    logger.exception("diff stage failed for run %s", run_id)
+                    change_note = f"; diff failed: {type(diff_exc).__name__}"
                 run.notes = (
                     f"{courses} courses, {len(pages)} pages {pages}; "
-                    f"CSV ready for review"
+                    f"CSV ready for review{change_note}"
                 )
         except Exception as exc:  # noqa: BLE001 - record any failure on the run
             logger.exception("extract_pdf_job failed for run %s", run_id)

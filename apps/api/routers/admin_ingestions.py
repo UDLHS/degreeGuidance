@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import tempfile
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
@@ -46,7 +47,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin_audit import log_admin_action
@@ -55,8 +56,12 @@ from apps.api.queue import enqueue_extract_pdf
 from apps.worker.jobs.ingest_zscores import ingest_zscores
 from core.config import settings
 from core.models.auth import User
-from core.models.cutoffs import IngestionRun, ParseError
+from core.models.cutoffs import HandbookChange, IngestionRun, ParseError
 from core.schemas.admin_ingestion import (
+    ChangeApplyResponse,
+    HandbookChangeListResponse,
+    HandbookChangeOut,
+    HandbookChangeUpdate,
     IngestionCreateResponse,
     IngestionRunDetail,
     IngestionRunListResponse,
@@ -329,3 +334,176 @@ async def promote_ingestion(
     )
     await db.commit()
     return IngestionCreateResponse(run_type="zscore", **summary)
+
+
+# ── Handbook change-set review (Phase A1 diff engine) ───────────────────────
+
+@router.get("/ingestions/{run_id}/changes", response_model=HandbookChangeListResponse)
+async def list_changes(
+    run_id: uuid.UUID,
+    status_filter: str | None = Query(None, alias="status"),
+    change_type: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> HandbookChangeListResponse:
+    """The diff change-set for a run, grouped for review. counts is by status
+    across the whole run; items honour the optional status/type filters."""
+    run = await db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
+
+    filters = [HandbookChange.run_id == run_id]
+    if status_filter:
+        filters.append(HandbookChange.status == status_filter)
+    if change_type:
+        filters.append(HandbookChange.change_type == change_type)
+
+    rows = (
+        await db.execute(
+            select(HandbookChange)
+            .where(*filters)
+            .order_by(HandbookChange.change_type, HandbookChange.course_code)
+        )
+    ).scalars().all()
+
+    count_rows = (
+        await db.execute(
+            select(HandbookChange.status, func.count())
+            .where(HandbookChange.run_id == run_id)
+            .group_by(HandbookChange.status)
+        )
+    ).all()
+
+    return HandbookChangeListResponse(
+        total=len(rows),
+        counts={s: c for s, c in count_rows},
+        items=[HandbookChangeOut.model_validate(r) for r in rows],
+    )
+
+
+@router.patch("/ingestions/{run_id}/changes/{change_id}", response_model=HandbookChangeOut)
+async def update_change(
+    run_id: uuid.UUID,
+    change_id: int,
+    payload: HandbookChangeUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> HandbookChangeOut:
+    """Approve or reject one change. For a course_added the admin may supply the
+    university_id + name_en here (merged into after_value) so apply can create
+    the course stub."""
+    ch = await db.get(HandbookChange, change_id)
+    if ch is None or ch.run_id != run_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Change not found for this run")
+    if ch.status == "applied":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Change already applied")
+
+    before_status = ch.status
+    ch.status = payload.status
+    ch.resolved_by = f"admin:{admin.user_id}"
+    ch.resolved_at = datetime.now(timezone.utc)
+
+    if ch.change_type == "course_added" and (payload.university_id or payload.name_en):
+        merged = dict(ch.after_value or {})
+        if payload.university_id is not None:
+            merged["university_id"] = payload.university_id
+        if payload.name_en:
+            merged["name_en"] = payload.name_en
+        ch.after_value = merged
+
+    await log_admin_action(
+        db, admin=admin, action_type="handbook_change.review",
+        target_table="handbook_changes", target_id=str(change_id),
+        before={"status": before_status}, after={"status": ch.status}, request=request,
+        notes=payload.notes,
+    )
+    await db.commit()
+    await db.refresh(ch)
+    return HandbookChangeOut.model_validate(ch)
+
+
+@router.post("/ingestions/{run_id}/changes/apply", response_model=ChangeApplyResponse)
+async def apply_changes(
+    run_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> ChangeApplyResponse:
+    """Apply every approved course_added / course_removed change. Removed courses
+    are deactivated (is_active=false, retained for chat/history); added courses
+    are created as inactive stubs the admin then completes. cutoff_changed rows
+    are informational — the numbers promote through the Step-4 loader."""
+    run = await db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
+
+    approved = (
+        await db.execute(
+            select(HandbookChange).where(
+                HandbookChange.run_id == run_id,
+                HandbookChange.status == "approved",
+                HandbookChange.change_type.in_(("course_added", "course_removed")),
+            )
+        )
+    ).scalars().all()
+
+    applied_removed = applied_added = 0
+    skipped: list[dict] = []
+    now = datetime.now(timezone.utc)
+
+    for ch in approved:
+        if ch.change_type == "course_removed":
+            hit = (
+                await db.execute(
+                    text(
+                        "UPDATE courses SET is_active = false, updated_at = now() "
+                        "WHERE course_code = :c AND is_active = true RETURNING course_code"
+                    ),
+                    {"c": ch.course_code},
+                )
+            ).first()
+            if hit is None:
+                skipped.append({"course_code": ch.course_code, "reason": "not found or already inactive"})
+                continue
+            ch.status, ch.resolved_by, ch.resolved_at = "applied", f"admin:{admin.user_id}", now
+            await log_admin_action(
+                db, admin=admin, action_type="course.deactivate", target_table="courses",
+                target_id=ch.course_code, before={"is_active": True}, after={"is_active": False},
+                request=request, notes=f"handbook-sync removal (run {run_id})",
+            )
+            applied_removed += 1
+
+        else:  # course_added
+            av = ch.after_value or {}
+            uni, name = av.get("university_id"), av.get("name_en")
+            if not uni or not name:
+                skipped.append({"course_code": ch.course_code, "reason": "needs university_id + name_en"})
+                continue
+            if not (await db.execute(text("SELECT 1 FROM universities WHERE university_id = :u"), {"u": uni})).first():
+                skipped.append({"course_code": ch.course_code, "reason": f"unknown university_id {uni}"})
+                continue
+            if (await db.execute(text("SELECT 1 FROM courses WHERE course_code = :c"), {"c": ch.course_code})).first():
+                ch.status, ch.resolved_by, ch.resolved_at = "applied", f"admin:{admin.user_id}", now
+                skipped.append({"course_code": ch.course_code, "reason": "already exists; marked applied"})
+                continue
+            course_number = ch.course_code[:3] if ch.course_code[:3].isdigit() else None
+            await db.execute(
+                text(
+                    "INSERT INTO courses (course_code, course_number, university_id, name_en, is_active) "
+                    "VALUES (:code, :num, :uni, :name, false)"
+                ),
+                {"code": ch.course_code, "num": course_number, "uni": uni, "name": name},
+            )
+            ch.status, ch.resolved_by, ch.resolved_at = "applied", f"admin:{admin.user_id}", now
+            await log_admin_action(
+                db, admin=admin, action_type="course.create", target_table="courses",
+                target_id=ch.course_code, before=None,
+                after={"course_code": ch.course_code, "university_id": uni, "name_en": name, "is_active": False},
+                request=request, notes=f"handbook-sync addition (run {run_id})",
+            )
+            applied_added += 1
+
+    await db.commit()
+    return ChangeApplyResponse(
+        applied_removed=applied_removed, applied_added=applied_added, skipped=skipped
+    )

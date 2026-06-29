@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IngestionCreateResponse(BaseModel):
@@ -74,3 +75,44 @@ class IngestionRunDetail(IngestionRunOut):
 
     parse_error_count: int
     parse_errors: list[ParseErrorOut]
+
+
+# ── Handbook change-set (Phase A1 diff engine) ──────────────────────────────
+
+class HandbookChangeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    change_id: int
+    run_id: uuid.UUID
+    change_type: str
+    course_code: str
+    summary: str | None = None
+    before_value: dict[str, Any] | None = None
+    after_value: dict[str, Any] | None = None
+    status: str
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
+class HandbookChangeListResponse(BaseModel):
+    total: int
+    counts: dict[str, int]  # e.g. {"pending": 6, "approved": 2, ...}
+    items: list[HandbookChangeOut]
+
+
+class HandbookChangeUpdate(BaseModel):
+    """Approve/reject one change. For a course_added the admin also supplies the
+    university_id + name_en the cutoff table can't give us, so apply can create
+    a valid (inactive) course stub."""
+
+    status: Literal["approved", "rejected"]
+    notes: str | None = None
+    university_id: int | None = Field(default=None, description="required to apply a course_added")
+    name_en: str | None = Field(default=None, description="required to apply a course_added")
+
+
+class ChangeApplyResponse(BaseModel):
+    applied_removed: int
+    applied_added: int
+    skipped: list[dict[str, Any]]
