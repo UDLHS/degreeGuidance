@@ -6,6 +6,7 @@ import { ArrowLeft, Download, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChangeSetReview } from "@/components/admin/change-set-review";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -194,6 +195,8 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
           </CardContent>
         </Card>
       ) : null}
+
+      {isExtraction && detail.status === "success" ? <ChangeSetReview runId={runId} /> : null}
 
       {detail.parse_error_count > 0 ? (
         <div>
