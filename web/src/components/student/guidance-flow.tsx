@@ -12,6 +12,7 @@ import type {
 } from "@/lib/guidance-types";
 
 const ACCENT = "#2b5fd0";
+const LAST_RUN_KEY = "dg_last_run";
 const STEP_LABELS = ["Z-score", "District", "Stream", "Subjects", "Preferences"];
 const TOTAL_STEPS = STEP_LABELS.length;
 const GRADES: SubjectInput["grade"][] = ["A", "B", "C", "S"];
@@ -86,6 +87,28 @@ export function GuidanceFlow() {
       .catch(() => setRefError(true));
   }, []);
 
+  // Restore the last completed run so a returning visitor lands straight on
+  // their results instead of re-entering Z-score / district / subjects.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_RUN_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.results) return;
+      if (typeof saved.zScore === "number") setZScore(saved.zScore);
+      setDistrictCode(saved.districtCode ?? null);
+      setStreamCode(saved.streamCode ?? null);
+      if (Array.isArray(saved.subjects)) setSubjects(saved.subjects);
+      setPreferredUnis(saved.preferredUnis ?? []);
+      setInterests(saved.interests ?? "");
+      setResults(saved.results);
+      setView("results");
+      setActiveTab("results");
+    } catch {
+      // Corrupt/blocked storage — start fresh, no harm done.
+    }
+  }, []);
+
   const examStreams = useMemo(
     () => (reference?.streams ?? []).filter((s) => s.code !== "ICT"),
     [reference],
@@ -127,6 +150,25 @@ export function GuidanceFlow() {
       setView("results");
       setActiveTab("results");
       window.scrollTo(0, 0);
+      // Persist the run so it survives a page reload / return visit.
+      try {
+        localStorage.setItem(
+          LAST_RUN_KEY,
+          JSON.stringify({
+            v: 1,
+            zScore,
+            districtCode,
+            streamCode,
+            subjects,
+            preferredUnis,
+            interests,
+            results: data,
+            savedAt: Date.now(),
+          }),
+        );
+      } catch {
+        // Storage full/blocked — non-fatal, the run still shows this session.
+      }
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     } finally {
