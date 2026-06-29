@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -29,7 +30,7 @@ from sqlalchemy import (
     func,
     text as sa_text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.db import Base
@@ -114,6 +115,48 @@ class ParseError(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_text("false"))
     resolved_action: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class HandbookChange(Base):
+    """One reviewable difference between an extracted handbook and the live DB.
+
+    Produced by the diff stage after a pdf_extraction run. 'course_added' and
+    'course_removed' drive real course-table mutations on approval; 'cutoff_changed'
+    is an observability report (the numbers promote through the Step-4 loader).
+    """
+
+    __tablename__ = "handbook_changes"
+    __table_args__ = (
+        CheckConstraint(
+            "change_type IN ('course_added', 'course_removed', 'cutoff_changed')",
+            name="ck_handbook_changes_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'applied')",
+            name="ck_handbook_changes_status",
+        ),
+        Index("idx_handbook_changes_run", "run_id", "status"),
+    )
+
+    change_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    change_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    course_code: Mapped[str] = mapped_column(String(15), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+    before_value: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after_value: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=sa_text("'pending'")
+    )
+    resolved_by: Mapped[str | None] = mapped_column(String(100))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

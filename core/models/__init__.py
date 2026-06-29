@@ -11,7 +11,7 @@ from core.models.reference import (
 )
 from core.models.course import Course
 from core.models.course_eligibility import CourseStreamEligibility, CourseAlias
-from core.models.cutoffs import ZScoreCutoff, IngestionRun, ParseError
+from core.models.cutoffs import ZScoreCutoff, IngestionRun, ParseError, HandbookChange
 from core.models.eligibility import CourseMedium, EligibilityAudit
 from core.models.auth import AdminAction, AuthEvent, User
 from core.models.scoring import ScoringConfig
@@ -23,7 +23,7 @@ __all__ = [
     "Stream", "StreamSubject", "Subject", "University",
     "Course",
     "CourseStreamEligibility", "CourseAlias",
-    "ZScoreCutoff", "IngestionRun", "ParseError",
+    "ZScoreCutoff", "IngestionRun", "ParseError", "HandbookChange",
     "CourseMedium", "EligibilityAudit",
     "User", "AdminAction", "AuthEvent",
     "ScoringConfig",
