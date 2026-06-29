@@ -18,6 +18,7 @@ from apps.api.routers import (
     eligibility,
     recommendations,
     reference,
+    student,
 )
 
 app = FastAPI(
@@ -27,6 +28,7 @@ app = FastAPI(
 )
 
 app.include_router(chat.router)
+app.include_router(student.router)
 app.include_router(eligibility.router)
 app.include_router(recommendations.router)
 app.include_router(reference.router)

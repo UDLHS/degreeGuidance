@@ -47,6 +47,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     display_name: Mapped[str | None] = mapped_column(String(150))
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    google_id: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="student")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(

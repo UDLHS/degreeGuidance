@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
 
 const ACCENT = "#2b5fd0";
 
@@ -36,6 +37,19 @@ interface ChatPanelProps {
   onNewChat?: () => void;
 }
 
+interface ConversationSummary {
+  conversation_id: string;
+  preview: string;
+  updated_at: string;
+  message_count: number;
+}
+
+const WELCOME: Message = {
+  role: "assistant",
+  content:
+    "Hi! I'm your AI degree guide. I can answer questions about specific courses, Z-score cutoffs, career paths, and universities. What would you like to know?",
+};
+
 function getSessionId(): string {
   const key = "dg_session_id";
   let id = localStorage.getItem(key);
@@ -47,19 +61,22 @@ function getSessionId(): string {
 }
 
 export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps) {
+  const { data: session } = useSession();
+  const isStudent = session?.user?.role === "student";
+
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content:
-        "Hi! I'm your AI degree guide. I can answer questions about specific courses, Z-score cutoffs, career paths, and universities. What would you like to know?",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
+
+  // History panel state
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<ConversationSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -69,6 +86,49 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
       inputRef.current?.focus();
     }
   }, [open, messages]);
+
+  useEffect(() => {
+    if (!open) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [open]);
+
+  async function fetchHistory() {
+    if (!isStudent) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/student/conversations");
+      if (res.ok) setHistory(await res.json());
+    } catch {
+      // silently ignore
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function toggleHistory() {
+    if (!showHistory && history.length === 0) fetchHistory();
+    setShowHistory((v) => !v);
+  }
+
+  async function resumeConversation(cid: string) {
+    setShowHistory(false);
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/student/conversations/${cid}`);
+      if (res.ok) {
+        const msgs: Array<{ role: string; content: string }> = await res.json();
+        setMessages([
+          WELCOME,
+          ...msgs.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        ]);
+        setConversationId(cid);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function send() {
     const text = input.trim();
@@ -87,6 +147,7 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
         body: JSON.stringify({
           session_id: getSessionId(),
           conversation_id: conversationId,
+          student_id: isStudent ? session?.user?.id ?? null : null,
           message: text,
           context: context ?? null,
           web_search: webSearch,
@@ -108,7 +169,6 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
       ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
-      // Remove the optimistic user message on error
       setMessages((prev) => prev.slice(0, -1));
       setInput(text);
     } finally {
@@ -123,6 +183,45 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
     }
   }
 
+  function handleNewChat() {
+    setMessages([WELCOME]);
+    setConversationId(null);
+    setError(null);
+    setShowHistory(false);
+    setHistory([]);
+    onNewChat?.();
+  }
+
+  // ── History panel ─────────────────────────────────────────────────────────
+
+  const historyPanel = showHistory && isStudent && (
+    <div className="border-b border-[#e3e9f2] bg-[#f8fafd]">
+      <div className="px-4 py-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#9aa7be]">
+          Previous chats
+        </p>
+        {historyLoading && (
+          <p className="text-[13px] text-[#9aa7be]">Loading…</p>
+        )}
+        {!historyLoading && history.length === 0 && (
+          <p className="text-[13px] text-[#9aa7be]">No previous chats yet.</p>
+        )}
+        {!historyLoading && history.map((h) => (
+          <button
+            key={h.conversation_id}
+            onClick={() => resumeConversation(h.conversation_id)}
+            className="mb-1 w-full rounded-[10px] px-3 py-2 text-left text-[13px] text-[#16243b] transition-colors hover:bg-[#e8eef8]"
+          >
+            <span className="line-clamp-1">{h.preview}</span>
+            <span className="mt-[2px] block text-[11px] text-[#9aa7be]">
+              {h.message_count} messages · {new Date(h.updated_at).toLocaleDateString()}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   // ── Shared sub-components ─────────────────────────────────────────────────
 
   const chatHeader = (
@@ -135,19 +234,59 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
       </div>
       <div className="flex-1">
         <div className="text-[14px] font-bold text-white">Degree Guide AI</div>
-        <div className="text-[11px] text-white/70">Powered by Gemini</div>
+        {isStudent
+          ? <div className="text-[11px] text-white/70">{session?.user?.name ?? session?.user?.email}</div>
+          : <div className="text-[11px] text-white/70">Powered by Gemini</div>
+        }
       </div>
-      {inline && onNewChat && (
-        <button
-          onClick={onNewChat}
-          className="flex items-center gap-[6px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-            <path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
-          </svg>
-          New Chat
-        </button>
-      )}
+      <div className="flex items-center gap-2">
+        {isStudent && inline && (
+          <button
+            onClick={toggleHistory}
+            title="Chat history"
+            className="flex items-center gap-[5px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="#fff" strokeWidth="1.8" />
+              <path d="M12 7v5l3 3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            History
+          </button>
+        )}
+        {!isStudent ? (
+          <button
+            onClick={() => signIn("google", { callbackUrl: "/" })}
+            className="flex items-center gap-[5px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="12" cy="7" r="4" stroke="#fff" strokeWidth="1.8" />
+            </svg>
+            Sign in
+          </button>
+        ) : (
+          <button
+            onClick={() => signOut({ callbackUrl: "/" })}
+            title="Sign out"
+            className="flex items-center justify-center rounded-lg bg-white/15 p-[6px] text-white transition-colors hover:bg-white/25"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
+        {inline && (
+          <button
+            onClick={handleNewChat}
+            className="flex items-center gap-[6px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+              <path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
+            New Chat
+          </button>
+        )}
+      </div>
     </div>
   );
 
@@ -230,7 +369,10 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
         </button>
       </div>
       <p className="mt-[6px] text-center text-[11px] text-[#b0baca]">
-        AI can make mistakes. Verify cutoffs at ugc.ac.lk.
+        {isStudent
+          ? "Your chats are saved to your account."
+          : <>Sign in to save history. · AI can make mistakes — verify at ugc.ac.lk.</>
+        }
       </p>
     </div>
   );
@@ -241,6 +383,7 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
     return (
       <div className="flex flex-col" style={{ minHeight: "calc(100vh - 120px)" }}>
         {chatHeader}
+        {historyPanel}
         {messageList}
         {inputBar}
       </div>

@@ -41,6 +41,7 @@ def _get_clients() -> tuple[genai.Client, genai.Client]:
 class ChatRequest(BaseModel):
     session_id: str = Field(..., min_length=1, max_length=64)
     conversation_id: str | None = Field(default=None)
+    student_id: str | None = Field(default=None)
     message: str = Field(..., min_length=1, max_length=2000)
     context: dict[str, Any] | None = Field(default=None)
     web_search: bool = Field(default=True)
@@ -76,7 +77,13 @@ async def post_chat(
             existing_messages = list(conversation.messages or [])
 
     if conversation is None:
-        conversation = Conversation(session_id=payload.session_id)
+        student_uuid: uuid.UUID | None = None
+        if payload.student_id:
+            try:
+                student_uuid = uuid.UUID(payload.student_id)
+            except ValueError:
+                pass
+        conversation = Conversation(session_id=payload.session_id, student_id=student_uuid)
         db.add(conversation)
         await db.flush()
 
