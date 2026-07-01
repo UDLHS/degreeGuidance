@@ -9,7 +9,16 @@ const API = process.env.API_BASE_URL ?? "http://127.0.0.1:8077";
 const ADMIN_ROLES = new Set(["admin", "superadmin"]);
 
 async function proxy(req: NextRequest, ctx: { params: { path?: string[] } }) {
-  const token = await getToken({ req, secret: process.env.AUTH_SECRET });
+  // On Vercel (HTTPS) Auth.js stores the session as `__Secure-authjs.session-token`.
+  // getToken defaults secureCookie=false, so it would look for the non-secure cookie
+  // name (and derive the wrong decryption salt) and return null -> every admin call
+  // 401s with "Not authenticated". Force secure cookies in production so the name +
+  // salt match what Auth.js actually set.
+  const token = await getToken({
+    req,
+    secret: process.env.AUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production",
+  });
   const accessToken = token?.accessToken as string | undefined;
   const role = token?.role as string | undefined;
   if (!accessToken || !role || !ADMIN_ROLES.has(role)) {
