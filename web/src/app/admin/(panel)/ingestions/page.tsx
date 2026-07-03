@@ -34,6 +34,8 @@ const STATUS_STYLES: Record<string, string> = {
   running: "bg-amber-100 text-amber-800",
   partial: "bg-amber-100 text-amber-800",
   failed: "bg-red-100 text-red-800",
+  needs_pages: "bg-red-100 text-red-800",
+  needs_mapping: "bg-blue-100 text-blue-800",
 };
 
 function StatusPill({ status }: { status: string }) {

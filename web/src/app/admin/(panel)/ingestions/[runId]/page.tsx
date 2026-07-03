@@ -7,6 +7,7 @@ import { ArrowLeft, Download, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChangeSetReview } from "@/components/admin/change-set-review";
+import { ColumnMappingReview } from "@/components/admin/column-mapping-review";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -39,6 +40,7 @@ type Detail = {
   error_log: string | null;
   started_at: string;
   completed_at: string | null;
+  cutoff_pages: string | null;
   parse_error_count: number;
   parse_errors: ParseError[];
 };
@@ -48,6 +50,8 @@ const STATUS_STYLES: Record<string, string> = {
   running: "bg-amber-100 text-amber-800",
   partial: "bg-amber-100 text-amber-800",
   failed: "bg-red-100 text-red-800",
+  needs_pages: "bg-red-100 text-red-800",
+  needs_mapping: "bg-blue-100 text-blue-800",
 };
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -65,6 +69,8 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState(false);
   const [reviewFile, setReviewFile] = useState<File | null>(null);
+  const [pagesSpec, setPagesSpec] = useState("");
+  const [reextracting, setReextracting] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -82,6 +88,26 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, [detail?.status, load]);
+
+  async function reextract() {
+    if (!pagesSpec.trim()) return;
+    setReextracting(true);
+    setMsg(null);
+    const res = await fetch(`/api/bff/admin/ingestions/${runId}/extract`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cutoff_pages: pagesSpec.trim() }),
+    });
+    const data = await res.json().catch(() => null);
+    setReextracting(false);
+    if (res.ok) {
+      setMsg({ ok: true, text: `Re-extracting pages ${pagesSpec.trim()} — this page refreshes automatically.` });
+      setPagesSpec("");
+    } else {
+      setMsg({ ok: false, text: data?.detail ?? `Re-extract failed (${res.status}).` });
+    }
+    load();
+  }
 
   async function promote() {
     setPromoting(true);
@@ -144,6 +170,7 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
         <CardContent className="divide-y">
           <Row label="Source" value={detail.source_label ?? "—"} />
           <Row label="Exam year" value={detail.year ?? "—"} />
+          {detail.cutoff_pages ? <Row label="Cutoff pages" value={detail.cutoff_pages} /> : null}
           <Row label="Processed" value={detail.records_processed ?? "—"} />
           <Row label="Failed" value={detail.records_failed ?? "—"} />
           <Row label="Started" value={new Date(detail.started_at).toLocaleString()} />
@@ -160,6 +187,41 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
 
       {detail.status === "running" ? (
         <p className="text-sm text-muted-foreground">Extraction in progress — this page refreshes automatically.</p>
+      ) : null}
+
+      {isExtraction && (detail.status === "needs_pages" || detail.status === "needs_mapping") ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {detail.status === "needs_pages"
+                ? "Cutoff table pages needed"
+                : "Wrong pages? Re-extract"}
+            </CardTitle>
+            <CardDescription>
+              {detail.status === "needs_pages"
+                ? "Auto-detection couldn't parse a cutoff grid in this handbook. Open the PDF, find the cutoff tables, and enter their page range."
+                : `Extracted from pages ${detail.cutoff_pages ?? "—"}. If tables live elsewhere too, re-extract with the full range — the mapping below resets.`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-end gap-3">
+            <div className="w-64 space-y-1.5">
+              <Label htmlFor="pages">Page range(s), e.g. 179-188 or 150-156,179-188</Label>
+              <Input
+                id="pages"
+                value={pagesSpec}
+                onChange={(e) => setPagesSpec(e.target.value)}
+                placeholder={detail.cutoff_pages ?? "179-188"}
+              />
+            </div>
+            <Button onClick={reextract} disabled={reextracting || !pagesSpec.trim()}>
+              {reextracting ? "Starting…" : "Re-extract"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {isExtraction && detail.status === "needs_mapping" ? (
+        <ColumnMappingReview runId={runId} onFinalized={load} />
       ) : null}
 
       {canPromote ? (
