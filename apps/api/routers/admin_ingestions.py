@@ -508,11 +508,17 @@ async def confirm_suggested_columns(
             )
         )
     ).scalars().all()
+    # guard: only catalog codes may be mapped (a 'book_new' suggestion carries
+    # a code the catalog doesn't have yet — the course must be created first)
+    valid_codes = set(
+        (await db.execute(text("SELECT course_code FROM courses"))).scalars().all()
+    )
     confirmed = 0
     now = datetime.now(timezone.utc)
     for c in cols:
         if (
             c.suggested_course_code
+            and c.suggested_course_code in valid_codes
             and c.suggestion_confidence is not None
             and float(c.suggestion_confidence) >= 0.999
         ):

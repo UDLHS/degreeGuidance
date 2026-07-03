@@ -42,6 +42,7 @@ from core.ingestion.grid_extractor import (
     extract_grid,
     parse_pages_spec,
 )
+from core.ingestion.unicode_section import BookMatcher, parse_unicode_section
 from core.models import ExtractionColumn, IngestionRun
 
 logger = logging.getLogger(__name__)
@@ -64,11 +65,13 @@ def _pages_to_spec(pages: list[int]) -> str:
 
 
 def _extract_and_index(pdf_path: str, pages: list[int] | None):
-    """Synchronous CPU-bound stage: grid + consolidation + whole-book text."""
+    """Synchronous CPU-bound stage: grid + consolidation + whole-book text +
+    the book's own Uni-Code section (the authoritative name -> code table)."""
     extraction = extract_grid(pdf_path, pages)
     logical, conflict_warnings = consolidate(extraction)
     book_text = build_book_text(pdf_path) if logical else ""
-    return extraction, logical, conflict_warnings, book_text
+    book_rows, book_warnings = parse_unicode_section(pdf_path) if logical else ([], [])
+    return extraction, logical, conflict_warnings, book_text, book_rows, book_warnings
 
 
 async def extract_pdf_job(
@@ -91,9 +94,10 @@ async def extract_pdf_job(
 
         try:
             pages = parse_pages_spec(cutoff_pages) if cutoff_pages else None
-            extraction, logical, conflict_warnings, book_text = await asyncio.to_thread(
-                _extract_and_index, pdf_path, pages
-            )
+            (
+                extraction, logical, conflict_warnings,
+                book_text, book_rows, book_warnings,
+            ) = await asyncio.to_thread(_extract_and_index, pdf_path, pages)
 
             if not logical:
                 run.status = final_status = "needs_pages"
@@ -119,13 +123,16 @@ async def extract_pdf_job(
                 )
 
                 # deterministic mapping suggestions -> extraction_columns rows
-                suggestions = await suggest_mappings(db, logical)
+                # (the book's own Uni-Code section is the primary source)
+                book = BookMatcher(book_rows) if book_rows else None
+                suggestions = await suggest_mappings(db, logical, book=book)
                 sug_by_key = {s.column_key: s for s in suggestions}
                 await db.execute(
                     delete(ExtractionColumn).where(ExtractionColumn.run_id == run.run_id)
                 )
                 for col in logical:
                     s = sug_by_key[col.column_key]
+                    exact = s.confidence is not None and s.confidence >= 0.999
                     db.add(ExtractionColumn(
                         run_id=run.run_id,
                         column_key=col.column_key,
@@ -134,18 +141,27 @@ async def extract_pdf_job(
                         markers=col.markers,
                         suggested_course_code=s.suggested_course_code,
                         suggestion_confidence=s.confidence,
-                        # pre-fill exact hits; admin still confirms at the gate
-                        mapped_course_code=(
-                            s.suggested_course_code if s.source in ("code", "alias") else None
-                        ),
+                        # pre-fill exact hits (code / alias / book-section);
+                        # admin still confirms at the gate
+                        mapped_course_code=s.suggested_course_code if exact else None,
                     ))
 
-                # grid artifact — the confirm endpoint builds the CSV from this
+                # grid artifact — the confirm endpoint builds the CSV from this;
+                # the book's code table rides along for future course_added use
                 artifact = {
                     "run_id": run_id,
                     "exam_year": exam_year,
                     "pages_processed": extraction.pages_processed,
-                    "warnings": extraction.all_warnings() + conflict_warnings,
+                    "warnings": extraction.all_warnings() + conflict_warnings + book_warnings,
+                    "book_code_rows": [
+                        {
+                            "code": r.code,
+                            "course_name": r.course_name,
+                            "university": r.university,
+                            "page_number": r.page_number,
+                        }
+                        for r in book_rows
+                    ],
                     "columns": [
                         {
                             "column_key": c.column_key,
@@ -169,7 +185,7 @@ async def extract_pdf_job(
                 repeats = sum(len(c.repeat_keys) for c in logical)
                 exact = sum(
                     1 for c in logical
-                    if sug_by_key[c.column_key].source in ("code", "alias")
+                    if (sug_by_key[c.column_key].confidence or 0) >= 0.999
                 )
                 run.status = final_status = "needs_mapping"
                 run.cutoff_pages = cutoff_pages or _pages_to_spec(extraction.pages_processed)
@@ -183,7 +199,8 @@ async def extract_pdf_job(
                 run.notes = (
                     f"{len(logical)} columns extracted from pages "
                     f"{run.cutoff_pages} ({repeats} spread-repeats collapsed); "
-                    f"{exact}/{len(logical)} exact-match suggestions pre-filled; "
+                    f"{exact}/{len(logical)} exact-match suggestions pre-filled "
+                    f"({len(book_rows)} rows read from the book's Uni-Code section); "
                     f"{len(present)}/{len(courses)} active courses present in book"
                     f"{warn_note} — awaiting column mapping review"
                 )
