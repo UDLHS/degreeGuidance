@@ -42,6 +42,12 @@ MAX_VALID_YEAR = 2030
 MIN_VALID_ZSCORE = -2.0
 MAX_VALID_ZSCORE = 3.0
 
+# asyncpg caps bind parameters at 32,767 per statement. A full handbook is
+# ~6,600 rows x 5 params ≈ 33,000 — the single-statement upsert sat 142 params
+# under the limit on the 2023 data and breaks as soon as the book grows (it did
+# in 2025). Chunk well below the cap.
+UPSERT_CHUNK_ROWS = 4000
+
 
 def normalize_district_label(raw: str) -> str:
     """Convert 'Nuwara Eliya' → 'NUWARA_ELIYA' to match districts.code."""
@@ -194,9 +200,10 @@ async def ingest_zscores(
                     })
                     processed += 1
 
-        # Bulk upsert in a single statement
-        if upsert_rows:
-            stmt = pg_insert(ZScoreCutoff.__table__).values(upsert_rows)
+        # Bulk upsert, chunked under asyncpg's 32,767-parameter cap
+        for i in range(0, len(upsert_rows), UPSERT_CHUNK_ROWS):
+            chunk = upsert_rows[i : i + UPSERT_CHUNK_ROWS]
+            stmt = pg_insert(ZScoreCutoff.__table__).values(chunk)
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_zscore_year_course_district",
                 set_={
