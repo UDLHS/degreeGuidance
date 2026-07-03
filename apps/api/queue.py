@@ -14,12 +14,22 @@ from arq.connections import RedisSettings
 from core.config import settings
 
 
-async def enqueue_extract_pdf(*, run_id: str, pdf_path: str, exam_year: int) -> None:
-    """Enqueue the PDF-extraction job for the worker to pick up."""
+async def enqueue_extract_pdf(
+    *, run_id: str, pdf_path: str, exam_year: int, cutoff_pages: str | None = None
+) -> None:
+    """Enqueue the PDF-extraction job for the worker to pick up.
+
+    cutoff_pages carries the admin-supplied page ranges on manual re-extraction
+    (e.g. '150-156,179-188'); None lets the extractor auto-detect.
+    """
     pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     try:
         await pool.enqueue_job(
-            "extract_pdf_job", run_id=run_id, pdf_path=pdf_path, exam_year=exam_year
+            "extract_pdf_job",
+            run_id=run_id,
+            pdf_path=pdf_path,
+            exam_year=exam_year,
+            cutoff_pages=cutoff_pages,
         )
     finally:
         await pool.aclose()

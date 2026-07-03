@@ -48,6 +48,7 @@ class IngestionRunOut(BaseModel):
     triggered_by: str | None = None
     notes: str | None = None
     error_log: str | None = None
+    cutoff_pages: str | None = None
 
 
 class IngestionRunListResponse(BaseModel):
@@ -116,3 +117,55 @@ class ChangeApplyResponse(BaseModel):
     applied_removed: int
     applied_added: int
     skipped: list[dict[str, Any]]
+
+
+# ── Staged extraction lifecycle (Phase 1 pipeline) ──────────────────────────
+
+class ExtractPagesRequest(BaseModel):
+    """Manual page-range re-extraction, e.g. '179-188' or '150-156,179-188'."""
+
+    cutoff_pages: str = Field(..., min_length=1, max_length=100)
+
+
+class ExtractionColumnOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    column_id: int
+    column_key: str
+    page_number: int
+    raw_label: str
+    markers: str | None = None
+    suggested_course_code: str | None = None
+    suggestion_confidence: float | None = None
+    mapped_course_code: str | None = None
+    status: str
+
+
+class ColumnListResponse(BaseModel):
+    run_status: str
+    cutoff_pages: str | None = None
+    total: int
+    counts: dict[str, int]                 # by column status
+    duplicate_mappings: dict[str, int]     # mapped/suggested code -> #columns
+    items: list[ExtractionColumnOut]
+
+
+class ColumnUpdate(BaseModel):
+    """Confirm/correct one column. Setting mapped_course_code confirms it;
+    status='ignored' excludes the column; status='pending' reopens it."""
+
+    mapped_course_code: str | None = Field(default=None, max_length=15)
+    status: Literal["confirmed", "ignored", "pending"] | None = None
+
+
+class BulkConfirmResponse(BaseModel):
+    confirmed: int
+    remaining_pending: int
+
+
+class MappingConfirmResponse(BaseModel):
+    columns_used: int
+    columns_ignored: int
+    csv_ready: bool
+    changes: dict[str, int]                # change_type -> count
+    aliases_learned: int

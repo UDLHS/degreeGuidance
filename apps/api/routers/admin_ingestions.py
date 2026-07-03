@@ -27,6 +27,9 @@ checked at the Form and the loader.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import os
 import tempfile
 import uuid
@@ -47,7 +50,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin_audit import log_admin_action
@@ -55,10 +58,22 @@ from apps.api.dependencies import get_current_admin, get_db
 from apps.api.queue import enqueue_extract_pdf
 from apps.worker.jobs.ingest_zscores import ingest_zscores
 from core.config import settings
+from core.ingestion.grid_extractor import DISTRICTS_ORDER, parse_pages_spec
+from core.ingestion.handbook_diff import compute_handbook_diff, record_changes
 from core.models.auth import User
-from core.models.cutoffs import HandbookChange, IngestionRun, ParseError
+from core.models.cutoffs import (
+    ExtractionColumn,
+    HandbookChange,
+    IngestionRun,
+    ParseError,
+)
 from core.schemas.admin_ingestion import (
+    BulkConfirmResponse,
     ChangeApplyResponse,
+    ColumnListResponse,
+    ColumnUpdate,
+    ExtractPagesRequest,
+    ExtractionColumnOut,
     HandbookChangeListResponse,
     HandbookChangeOut,
     HandbookChangeUpdate,
@@ -66,6 +81,7 @@ from core.schemas.admin_ingestion import (
     IngestionRunDetail,
     IngestionRunListResponse,
     IngestionRunOut,
+    MappingConfirmResponse,
     ParseErrorOut,
 )
 
@@ -334,6 +350,313 @@ async def promote_ingestion(
     )
     await db.commit()
     return IngestionCreateResponse(run_type="zscore", **summary)
+
+
+# ── Staged extraction lifecycle (Phase 1 pipeline) ───────────────────────────
+
+@router.post(
+    "/ingestions/{run_id}/extract",
+    response_model=IngestionCreateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Re-extract with an admin-supplied cutoff page range",
+)
+async def reextract_with_pages(
+    run_id: uuid.UUID,
+    payload: ExtractPagesRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> IngestionCreateResponse:
+    run = await db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
+    if run.run_type != "pdf_extraction":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            detail="Only pdf_extraction runs can be re-extracted")
+    if run.status not in ("needs_pages", "needs_mapping", "failed"):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail=f"Run is {run.status}; re-extract only from "
+                                   f"needs_pages / needs_mapping / failed")
+    try:
+        parse_pages_spec(payload.cutoff_pages)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
+
+    pdf_path = _work_dir() / f"{run_id}.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail="Uploaded PDF no longer available; upload the handbook again")
+
+    before_pages = run.cutoff_pages
+    run.status = "running"
+    run.cutoff_pages = payload.cutoff_pages
+    run.error_log = None
+    await log_admin_action(
+        db, admin=admin, action_type="ingestion.reextract",
+        target_table="ingestion_runs", target_id=str(run_id),
+        before={"cutoff_pages": before_pages}, after={"cutoff_pages": payload.cutoff_pages},
+        request=request,
+    )
+    await db.commit()
+    await enqueue_extract_pdf(
+        run_id=str(run_id), pdf_path=str(pdf_path), exam_year=run.year,
+        cutoff_pages=payload.cutoff_pages,
+    )
+    return IngestionCreateResponse(run_id=str(run_id), status="running", run_type="pdf_extraction")
+
+
+def _duplicate_mappings(cols: list[ExtractionColumn]) -> dict[str, int]:
+    """Effective code -> #columns targeting it (ignored columns excluded)."""
+    counts: dict[str, int] = {}
+    for c in cols:
+        if c.status == "ignored":
+            continue
+        code = c.mapped_course_code or c.suggested_course_code
+        if code:
+            counts[code] = counts.get(code, 0) + 1
+    return {code: n for code, n in counts.items() if n > 1}
+
+
+@router.get("/ingestions/{run_id}/columns", response_model=ColumnListResponse)
+async def list_columns(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ColumnListResponse:
+    run = await db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
+    cols = (
+        await db.execute(
+            select(ExtractionColumn)
+            .where(ExtractionColumn.run_id == run_id)
+            .order_by(ExtractionColumn.page_number, ExtractionColumn.column_key)
+        )
+    ).scalars().all()
+    counts: dict[str, int] = {}
+    for c in cols:
+        counts[c.status] = counts.get(c.status, 0) + 1
+    return ColumnListResponse(
+        run_status=run.status,
+        cutoff_pages=run.cutoff_pages,
+        total=len(cols),
+        counts=counts,
+        duplicate_mappings=_duplicate_mappings(cols),
+        items=[ExtractionColumnOut.model_validate(c) for c in cols],
+    )
+
+
+@router.patch("/ingestions/{run_id}/columns/{column_id}", response_model=ExtractionColumnOut)
+async def update_column(
+    run_id: uuid.UUID,
+    column_id: int,
+    payload: ColumnUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> ExtractionColumnOut:
+    col = await db.get(ExtractionColumn, column_id)
+    if col is None or col.run_id != run_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Column not found for this run")
+
+    before = {"mapped_course_code": col.mapped_course_code, "status": col.status}
+
+    if payload.mapped_course_code is not None:
+        code = payload.mapped_course_code.strip().upper()
+        exists = (
+            await db.execute(text("SELECT 1 FROM courses WHERE course_code = :c"), {"c": code})
+        ).first()
+        if not exists:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail=f"Unknown course_code {code}")
+        col.mapped_course_code = code
+        col.status = "confirmed"
+
+    if payload.status is not None:
+        if payload.status == "confirmed" and not col.mapped_course_code:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail="Cannot confirm a column with no mapped_course_code")
+        col.status = payload.status
+
+    col.updated_at = datetime.now(timezone.utc)
+    await log_admin_action(
+        db, admin=admin, action_type="extraction_column.update",
+        target_table="extraction_columns", target_id=str(column_id),
+        before=before,
+        after={"mapped_course_code": col.mapped_course_code, "status": col.status},
+        request=request, notes=col.column_key,
+    )
+    await db.commit()
+    await db.refresh(col)
+    return ExtractionColumnOut.model_validate(col)
+
+
+@router.post("/ingestions/{run_id}/columns/confirm-suggested", response_model=BulkConfirmResponse)
+async def confirm_suggested_columns(
+    run_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> BulkConfirmResponse:
+    """Bulk-confirm every pending column whose suggestion was an exact hit
+    (printed code or alias, confidence 1.0). Name-similarity suggestions stay
+    pending for individual review."""
+    cols = (
+        await db.execute(
+            select(ExtractionColumn).where(
+                ExtractionColumn.run_id == run_id,
+                ExtractionColumn.status == "pending",
+            )
+        )
+    ).scalars().all()
+    confirmed = 0
+    now = datetime.now(timezone.utc)
+    for c in cols:
+        if (
+            c.suggested_course_code
+            and c.suggestion_confidence is not None
+            and float(c.suggestion_confidence) >= 0.999
+        ):
+            c.mapped_course_code = c.suggested_course_code
+            c.status = "confirmed"
+            c.updated_at = now
+            confirmed += 1
+    remaining = len(cols) - confirmed
+    await log_admin_action(
+        db, admin=admin, action_type="extraction_column.bulk_confirm",
+        target_table="extraction_columns", target_id=str(run_id),
+        before=None, after={"confirmed": confirmed, "remaining_pending": remaining},
+        request=request,
+    )
+    await db.commit()
+    return BulkConfirmResponse(confirmed=confirmed, remaining_pending=remaining)
+
+
+@router.post("/ingestions/{run_id}/mapping/confirm", response_model=MappingConfirmResponse)
+async def confirm_mapping(
+    run_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> MappingConfirmResponse:
+    """Finalize Gate 2: write the Step-4 CSV from admin-confirmed columns,
+    learn new aliases, run the diff (with the whole-book safeguard) and stage
+    the change-set. The run becomes 'success'; cutoffs still go live only via
+    the existing promote endpoint."""
+    run = await db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
+    if run.status != "needs_mapping":
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail=f"Run is {run.status}; mapping can only be confirmed from needs_mapping")
+
+    cols = (
+        await db.execute(
+            select(ExtractionColumn).where(ExtractionColumn.run_id == run_id)
+        )
+    ).scalars().all()
+    pending = [c for c in cols if c.status == "pending"]
+    if pending:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"{len(pending)} column(s) still pending — confirm or ignore each "
+                   f"(e.g. {', '.join(c.column_key for c in pending[:5])})",
+        )
+    used = [c for c in cols if c.status == "confirmed" and c.mapped_course_code]
+    if not used:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="No confirmed columns to commit")
+
+    dup: dict[str, list[str]] = {}
+    for c in used:
+        dup.setdefault(c.mapped_course_code, []).append(c.column_key)
+    dups = {code: keys for code, keys in dup.items() if len(keys) > 1}
+    if dups:
+        detail = "; ".join(f"{code}: {', '.join(keys)}" for code, keys in list(dups.items())[:5])
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"Multiple confirmed columns map to the same course — set the "
+                   f"extras to 'ignored' first. {detail}",
+        )
+
+    grid_path = _work_dir() / f"{run_id}.grid.json"
+    if not grid_path.exists():
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            detail="Grid artifact missing; re-extract the PDF first")
+    artifact = json.loads(grid_path.read_text(encoding="utf-8"))
+    values_by_key: dict[str, dict[str, str | None]] = {
+        c["column_key"]: c["values"] for c in artifact["columns"]
+    }
+    for c in used:
+        if c.column_key not in values_by_key:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                detail=f"Column {c.column_key} not in the grid artifact; re-extract")
+
+    # learn aliases: printed label -> confirmed code (next year resolves exactly)
+    aliases_learned = 0
+    for c in used:
+        label = (c.raw_label or "").strip()
+        if not label or label == c.mapped_course_code:
+            continue
+        res = await db.execute(text(
+            "INSERT INTO course_aliases (course_code, alias_text, source, confidence, is_verified) "
+            "VALUES (:code, :alias, 'mapping_confirm', 1.0, true) "
+            "ON CONFLICT ON CONSTRAINT uq_alias_per_course DO NOTHING"
+        ), {"code": c.mapped_course_code, "alias": label})
+        aliases_learned += res.rowcount or 0
+
+    # Step-4 CSV (headers are course codes — self-aliases from migration 17)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    used_sorted = sorted(used, key=lambda c: (c.page_number, c.column_key))
+    writer.writerow([""] + [c.mapped_course_code for c in used_sorted])
+    for district in DISTRICTS_ORDER:
+        row = [district]
+        for c in used_sorted:
+            row.append(values_by_key[c.column_key].get(district) or "")
+        writer.writerow(row)
+    (_work_dir() / f"{run_id}.csv").write_text(buf.getvalue(), encoding="utf-8-sig")
+
+    # diff with the whole-book safeguard
+    extracted: dict[str, dict[str, str]] = {}
+    for c in used_sorted:
+        extracted[c.mapped_course_code] = {
+            d: v for d, v in values_by_key[c.column_key].items() if v is not None
+        }
+    presence_path = _work_dir() / f"{run_id}.presence.json"
+    present = (
+        set(json.loads(presence_path.read_text(encoding="utf-8")))
+        if presence_path.exists() else None
+    )
+    await db.execute(delete(HandbookChange).where(HandbookChange.run_id == run_id))
+    changes = await compute_handbook_diff(db, extracted, run.year, present_in_book=present)
+    await record_changes(db, run_id, changes)
+    change_counts: dict[str, int] = {}
+    for ch in changes:
+        change_counts[ch.change_type] = change_counts.get(ch.change_type, 0) + 1
+
+    ignored = sum(1 for c in cols if c.status == "ignored")
+    run.status = "success"
+    run.notes = (
+        f"mapping confirmed: {len(used)} columns used, {ignored} ignored, "
+        f"{aliases_learned} new aliases learned; changes: "
+        + (", ".join(f"{k}={v}" for k, v in sorted(change_counts.items())) or "none")
+        + " — CSV ready for review & promote"
+    )
+    await log_admin_action(
+        db, admin=admin, action_type="ingestion.mapping_confirm",
+        target_table="ingestion_runs", target_id=str(run_id),
+        before=None,
+        after={"columns_used": len(used), "ignored": ignored,
+               "aliases_learned": aliases_learned, "changes": change_counts},
+        request=request,
+    )
+    await db.commit()
+    return MappingConfirmResponse(
+        columns_used=len(used),
+        columns_ignored=ignored,
+        csv_ready=True,
+        changes=change_counts,
+        aliases_learned=aliases_learned,
+    )
 
 
 # ── Handbook change-set review (Phase A1 diff engine) ───────────────────────

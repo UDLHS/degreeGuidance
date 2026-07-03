@@ -221,29 +221,50 @@ async def test_unknown_extension_rejected(client: AsyncClient, admin_token: str)
 
 @pytest.mark.skipif(not HANDBOOK.exists(), reason="2024 handbook PDF not present")
 async def test_extract_job_real_pdf(db_session: AsyncSession, admin_token: str, work_dir: Path):
+    """Staged lifecycle: extraction parks the run at needs_mapping with
+    extraction_columns rows, a grid artifact and the whole-book presence set.
+    The CSV is only written later by mapping/confirm; the PDF is retained."""
     from apps.worker.jobs.extract_pdf import extract_pdf_job
 
     rid = await _insert_extraction_run(db_session, status="running")
     pdf_copy = work_dir / f"{rid}.pdf"
-    shutil.copy(HANDBOOK, pdf_copy)  # job unlinks the copy, not the real handbook
+    shutil.copy(HANDBOOK, pdf_copy)
 
     result = await extract_pdf_job(None, run_id=str(rid), pdf_path=str(pdf_copy), exam_year=SENTINEL_YEAR)
-    assert result["status"] == "success", result
+    assert result["status"] == "needs_mapping", result
 
     row = (
         await db_session.execute(
-            text("SELECT status, records_processed FROM ingestion_runs WHERE run_id = :r"),
+            text("SELECT status, records_processed, cutoff_pages FROM ingestion_runs WHERE run_id = :r"),
             {"r": rid},
         )
     ).first()
-    assert row.status == "success"
-    assert row.records_processed > 6000  # ~6,525 cells in the 2024 handbook
+    assert row.status == "needs_mapping"
+    assert row.records_processed > 6000  # ~6,525 grid cells in the 2024 handbook
+    assert row.cutoff_pages == "179-188"  # auto-detected range recorded
 
-    csv_path = work_dir / f"{rid}.csv"
-    assert csv_path.exists()
-    assert not pdf_copy.exists()  # uploaded PDF cleaned up
-    header = csv_path.read_text(encoding="utf-8-sig").splitlines()[0]
-    assert header.count(",") > 200  # ~261 course-code columns
+    n_cols = (
+        await db_session.execute(
+            text("SELECT count(*) FROM extraction_columns WHERE run_id = :r"), {"r": rid}
+        )
+    ).scalar_one()
+    assert n_cols > 250  # 262 logical columns
+
+    prefilled = (
+        await db_session.execute(
+            text(
+                "SELECT count(*) FROM extraction_columns "
+                "WHERE run_id = :r AND mapped_course_code IS NOT NULL"
+            ),
+            {"r": rid},
+        )
+    ).scalar_one()
+    assert prefilled > 250  # exact code/alias hits are pre-filled for review
+
+    assert (work_dir / f"{rid}.grid.json").exists()
+    assert (work_dir / f"{rid}.presence.json").exists()
+    assert not (work_dir / f"{rid}.csv").exists()  # CSV comes from mapping/confirm
+    assert pdf_copy.exists()  # PDF retained for re-extract + confirm
 
 
 # ---- CSV download ----
