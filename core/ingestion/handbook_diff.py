@@ -56,8 +56,16 @@ async def compute_handbook_diff(
     db: AsyncSession,
     extracted: dict[str, dict[str, str]],
     exam_year: int,
+    present_in_book: set[str] | None = None,
 ) -> list[ChangeRecord]:
-    """Diff the extracted handbook against the DB. Pure read; returns records."""
+    """Diff the extracted handbook against the DB. Pure read; returns records.
+
+    present_in_book — coverage safeguard (core.ingestion.book_search): codes of
+    active courses found ANYWHERE in the whole book text. When provided, a
+    course absent from the extracted grids but still present in the book is
+    NOT flagged removed (it lives outside the cutoff tables — the
+    007K/103D/104H/105L/140P false-positive class).
+    """
     extracted_codes = {str(c).strip().upper() for c in extracted}
     # normalise the keys we look up cutoffs by, too
     extracted_norm = {str(c).strip().upper(): v for c, v in extracted.items()}
@@ -73,15 +81,22 @@ async def compute_handbook_diff(
 
     changes: list[ChangeRecord] = []
 
-    # --- Removed: active in DB, absent from the new book ---
+    # --- Removed: active in DB, absent from the grids AND from the whole book ---
     for code in sorted(active_codes - extracted_codes):
+        if present_in_book is not None and code in present_in_book:
+            continue  # printed elsewhere in the book — not a removal
+        where = (
+            "absent from the cutoff tables and the rest of the book"
+            if present_in_book is not None
+            else "absent from the extracted cutoff tables (whole-book check not run)"
+        )
         changes.append(
             ChangeRecord(
                 change_type="course_removed",
                 course_code=code,
                 summary=(
                     f"{code} — \"{name_by_code[code]}\" is active in the DB but "
-                    f"absent from the {exam_year} handbook."
+                    f"{where} in the {exam_year} handbook."
                 ),
                 before_value={"course_code": code, "name_en": name_by_code[code], "is_active": True},
                 after_value=None,
