@@ -352,6 +352,69 @@ def _build_grid(
     )
 
 
+# ── consolidation ────────────────────────────────────────────────────────────
+
+@dataclass
+class LogicalColumn:
+    """One real handbook column after collapsing page-spread repeats.
+
+    The 2025 book prints each table twice across a spread (p182.g1 repeats
+    p181.g1 exactly); a repeat is the same normalized label with identical
+    values in every district and must not become a second course column.
+    """
+
+    column_key: str          # key of the first physical occurrence
+    page_number: int
+    raw_label: str | None
+    code: str | None
+    markers: str | None
+    values: dict[str, str | None]      # district -> value
+    repeat_keys: list[str] = field(default_factory=list)
+
+
+def consolidate(extraction: GridExtraction) -> tuple[list[LogicalColumn], list[str]]:
+    """Collapse repeated physical columns into logical ones.
+
+    Identity = (normalized label or code) + the full value vector. Same label
+    with DIFFERENT values stays separate and is flagged — that's a real
+    conflict only the admin can resolve.
+    """
+    logical: list[LogicalColumn] = []
+    by_identity: dict[tuple, LogicalColumn] = {}
+    label_seen: dict[str, list[LogicalColumn]] = {}
+    warnings: list[str] = []
+
+    for g in extraction.grids:
+        for c in g.columns:
+            values = {d: g.rows[d][c.column_index] for d in g.rows}
+            label_norm = re.sub(r"\s+", " ", (c.raw_label or c.code or "").upper()).strip()
+            identity = (label_norm, tuple(sorted(values.items())))
+            hit = by_identity.get(identity)
+            if hit is not None:
+                hit.repeat_keys.append(c.column_key)
+                continue
+            col = LogicalColumn(
+                column_key=c.column_key,
+                page_number=c.page_number,
+                raw_label=c.raw_label,
+                code=c.code,
+                markers=c.markers,
+                values=values,
+            )
+            by_identity[identity] = col
+            logical.append(col)
+            if label_norm:
+                label_seen.setdefault(label_norm, []).append(col)
+
+    for label_norm, cols in label_seen.items():
+        if len(cols) > 1:
+            keys = ", ".join(c.column_key for c in cols)
+            warnings.append(
+                f"label {label_norm[:60]!r} appears {len(cols)}x with DIFFERENT values ({keys})"
+            )
+    return logical, warnings
+
+
 # ── public API ───────────────────────────────────────────────────────────────
 
 def extract_grid(pdf_path: str, pages: list[int] | None = None) -> GridExtraction:
