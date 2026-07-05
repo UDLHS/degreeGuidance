@@ -61,23 +61,40 @@ def code_present(book_text: str, code: str) -> bool:
     return re.search(rf"(?<![A-Z0-9]){re.escape(code.upper())}(?![A-Z0-9])", book_text) is not None
 
 
-def name_present(book_text: str, name_en: str) -> bool:
-    phrase = normalize_label(_base_name(name_en))
-    # parenthetical acronyms like '(TESL)' may be typeset apart from the name;
-    # match on the wordy part
-    phrase = re.sub(r"\([^)]*\)", " ", phrase)
-    phrase = re.sub(r"\s+", " ", phrase).strip()
+def strip_parentheticals(text: str) -> str:
+    """Remove (…) groups and collapse whitespace — used on BOTH sides of the
+    name check so stripping stays symmetric."""
+    return re.sub(r"\s+", " ", re.sub(r"\([^)]*\)", " ", text)).strip()
+
+
+def name_present(
+    book_text: str, name_en: str, book_text_noparens: str | None = None
+) -> bool:
+    """True when the course's base name appears in the book text.
+
+    Parenthetical acronyms like '(TESL)' or '(TV)' are stripped from OUR
+    phrase — so the comparison must also run against a paren-stripped copy of
+    the book text, or 'Management Studies (TV) - B' can never match: the
+    stripped phrase 'MANAGEMENT STUDIES - B' is not a substring of the printed
+    'MANAGEMENT STUDIES (TV) - B'. That asymmetry falsely flagged 040R/040W
+    as removed (and an admin, told they were absent, approved it)."""
+    phrase = strip_parentheticals(normalize_label(_base_name(name_en)))
     if len(phrase) < 4:
         return False
-    return phrase in book_text
+    if phrase in book_text:
+        return True
+    if book_text_noparens is None:
+        book_text_noparens = strip_parentheticals(book_text)
+    return phrase in book_text_noparens
 
 
 def present_courses(
     book_text: str, courses: list[tuple[str, str]]
 ) -> set[str]:
     """Codes of the [(course_code, name_en), ...] found anywhere in the book."""
+    noparens = strip_parentheticals(book_text)
     found: set[str] = set()
     for code, name in courses:
-        if code_present(book_text, code) or name_present(book_text, name):
+        if code_present(book_text, code) or name_present(book_text, name, noparens):
             found.add(code)
     return found
