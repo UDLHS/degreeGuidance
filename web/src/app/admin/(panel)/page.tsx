@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 const CARDS = [
   { href: "/admin/ingestions", title: "Ingestions", desc: "Upload handbooks, review extractions, promote cutoffs." },
+  { href: "/admin/cutoffs", title: "Cutoffs", desc: "Browse z-score cutoffs by year as a course × district grid." },
   { href: "/admin/aliases", title: "Aliases", desc: "Verify and correct OCR-label → course mappings." },
   { href: "/admin/courses", title: "Courses", desc: "Edit names, flags, and onboard new courses." },
   { href: "/admin/requirements", title: "Subject Rules", desc: "Review curated §2.2 eligibility rules with source citations." },

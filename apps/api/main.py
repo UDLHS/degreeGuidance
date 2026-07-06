@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from apps.api.routers import (
     admin_aliases,
     admin_courses,
+    admin_cutoffs,
     admin_ingestions,
     admin_requirements,
     auth,
@@ -35,6 +36,7 @@ app.include_router(reference.router)
 app.include_router(auth.router)
 app.include_router(admin_aliases.router)
 app.include_router(admin_courses.router)
+app.include_router(admin_cutoffs.router)
 app.include_router(admin_ingestions.router)
 app.include_router(admin_requirements.router)
 
