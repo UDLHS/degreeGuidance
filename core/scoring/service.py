@@ -313,7 +313,11 @@ async def _interest_scores(
     }
 
 
-# stream-eligible, active courses with NO usable cutoff for (year, district)
+# stream-eligible, active courses with NO usable cutoff for (year, district).
+# Checked for THIS student's stream specifically -- a course with no general
+# cutoff but a stream-specific override for :sid (e.g. 107L, see
+# course_stream_cutoff_overrides) still counts as "usable", it just isn't
+# reachable through the general z_score_cutoffs row.
 _ALSO_OFFERED_FROM = (
     "FROM courses c JOIN universities u ON u.university_id = c.university_id "
     "WHERE c.is_active = TRUE "
@@ -321,7 +325,11 @@ _ALSO_OFFERED_FROM = (
     "            WHERE cse.course_code = c.course_code AND cse.stream_id = :sid) "
     "AND NOT EXISTS (SELECT 1 FROM z_score_cutoffs zc "
     "                WHERE zc.course_code = c.course_code AND zc.year = :yr "
-    "                AND zc.district_id = :did AND zc.z_score IS NOT NULL)"
+    "                AND zc.district_id = :did AND zc.z_score IS NOT NULL) "
+    "AND NOT EXISTS (SELECT 1 FROM course_stream_cutoff_overrides so "
+    "                WHERE so.course_code = c.course_code AND so.year = :yr "
+    "                AND so.district_id = :did AND so.stream_id = :sid "
+    "                AND so.z_score IS NOT NULL)"
 )
 
 

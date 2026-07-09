@@ -17,6 +17,8 @@ from core.models.cutoffs import (
     ParseError,
     HandbookChange,
     ExtractionColumn,
+    CourseStreamCutoffOverride,
+    UnmappedCutoff,
 )
 from core.models.eligibility import CourseMedium, EligibilityAudit
 from core.models.auth import AdminAction, AuthEvent, User
@@ -30,6 +32,7 @@ __all__ = [
     "Course",
     "CourseStreamEligibility", "CourseAlias",
     "ZScoreCutoff", "IngestionRun", "ParseError", "HandbookChange", "ExtractionColumn",
+    "CourseStreamCutoffOverride", "UnmappedCutoff",
     "CourseMedium", "EligibilityAudit",
     "User", "AdminAction", "AuthEvent",
     "ScoringConfig",

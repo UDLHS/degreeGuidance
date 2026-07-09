@@ -22,10 +22,17 @@ type Row = {
   name_en: string;
   university_code: string | null;
   is_active: boolean;
+  is_unmapped?: boolean;
   values: Record<string, number | null>;
   notes: Record<string, string>;
 };
-type Matrix = { year: number; districts: District[]; rows: Row[]; total_courses: number };
+type Matrix = {
+  year: number;
+  districts: District[];
+  rows: Row[];
+  total_courses: number;
+  total_unmapped?: number;
+};
 
 // z-scores run ~0–2.6; map to a light green scale so the grid is scannable.
 function cellBg(z: number | null): string {
@@ -147,14 +154,19 @@ export default function CutoffsPage() {
             </thead>
             <tbody>
               {data.rows.map((r) => (
-                <tr key={r.course_code} className="hover:bg-accent/30">
+                <tr key={r.is_unmapped ? `u:${r.name_en}` : r.course_code} className="hover:bg-accent/30">
                   <th
                     className={cn(
                       "sticky left-0 z-10 border-b border-r bg-background px-3 py-1.5 text-left font-normal",
-                      !r.is_active && "opacity-50",
+                      !r.is_active && !r.is_unmapped && "opacity-50",
                     )}
                   >
                     <span className="font-mono font-semibold">{r.course_code}</span>
+                    {r.is_unmapped ? (
+                      <span className="ml-1 rounded bg-blue-100 px-1 py-0.5 text-[9px] font-medium text-blue-800">
+                        no code
+                      </span>
+                    ) : null}
                     <span className="ml-2 text-muted-foreground">
                       {r.name_en.length > 42 ? r.name_en.slice(0, 42) + "…" : r.name_en}
                     </span>

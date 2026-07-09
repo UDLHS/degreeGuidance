@@ -67,6 +67,82 @@ class ZScoreCutoff(Base):
     )
 
 
+class CourseStreamCutoffOverride(Base):
+    """A cutoff for (course, district, year) that differs by A/L stream.
+
+    Only populated for the rare course whose handbook cutoff table carries
+    genuinely different z-scores per stream under ONE official Uni-Code
+    (verified: Food Business Management/107L is the only such case across
+    the 2023/2024/2025 books). ZScoreCutoff.z_score is left NULL for these
+    (course, district, year) rows -- callers COALESCE this table's value (for
+    the student's own stream) over the general row, so every other course's
+    query path is untouched.
+    """
+
+    __tablename__ = "course_stream_cutoff_overrides"
+    __table_args__ = (
+        UniqueConstraint(
+            "year", "course_code", "district_id", "stream_id",
+            name="uq_stream_override_year_course_district_stream",
+        ),
+        Index("idx_stream_override_course_year", "course_code", "year"),
+    )
+
+    override_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    course_code: Mapped[str] = mapped_column(
+        String(15),
+        ForeignKey("courses.course_code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    district_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("districts.district_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    stream_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("streams.stream_id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    z_score: Mapped[float | None] = mapped_column(Numeric(6, 4))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class UnmappedCutoff(Base):
+    """A cutoff-table column preserved WITHOUT a Uni-Code — real z-scores that
+    have no code in the book's Uni-Code section (a discontinued/renamed course
+    still printing its own cutoff column). Kept verbatim by printed label so
+    the data is never lost; not joined into course_code-keyed eligibility.
+    See migration 38 and [[handbook-format-knowledge]]."""
+
+    __tablename__ = "unmapped_cutoffs"
+    __table_args__ = (
+        UniqueConstraint("year", "raw_label", "district_id", name="uq_unmapped_year_label_district"),
+        Index("idx_unmapped_year", "year"),
+    )
+
+    unmapped_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("ingestion_runs.run_id", ondelete="SET NULL")
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_label: Mapped[str] = mapped_column(Text, nullable=False)
+    course_name: Mapped[str | None] = mapped_column(Text)
+    university: Mapped[str | None] = mapped_column(Text)
+    district_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("districts.district_id", ondelete="RESTRICT"), nullable=False
+    )
+    z_score: Mapped[float | None] = mapped_column(Numeric(6, 4))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class IngestionRun(Base):
     __tablename__ = "ingestion_runs"
     __table_args__ = (
@@ -136,7 +212,7 @@ class ExtractionColumn(Base):
     __tablename__ = "extraction_columns"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'confirmed', 'ignored')",
+            "status IN ('pending', 'confirmed', 'ignored', 'unmapped_kept')",
             name="ck_extraction_columns_status",
         ),
         UniqueConstraint("run_id", "column_key", name="uq_extraction_columns_run_key"),
@@ -159,6 +235,12 @@ class ExtractionColumn(Base):
         String(15), ForeignKey("courses.course_code", ondelete="RESTRICT"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default=sa_text("'pending'"))
+    override_streams: Mapped[str | None] = mapped_column(
+        String(200),
+        comment="comma-separated stream codes this column represents when it "
+                "shares its mapped code with another confirmed column (disjoint "
+                "stream split); NULL is the normal 1:1 case",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

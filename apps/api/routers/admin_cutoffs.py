@@ -84,6 +84,7 @@ async def _matrix(db: AsyncSession, year: int, q: str | None) -> dict:
                 "name_en": r["name_en"],
                 "university_code": r["university_code"],
                 "is_active": r["is_active"],
+                "is_unmapped": False,
                 "values": {},
                 "notes": {},
             },
@@ -93,11 +94,49 @@ async def _matrix(db: AsyncSession, year: int, q: str | None) -> dict:
         if r["notes"]:
             course["notes"][did] = r["notes"]
 
+    # Codeless cutoffs (real z-scores, no Uni-Code) — appended so the admin can
+    # SEE the preserved data. Keyed by raw_label since there is no course_code.
+    uparams: dict = {"y": year}
+    uwhere = "year = :y"
+    if q and q.strip():
+        uwhere += " AND (raw_label ILIKE :q OR course_name ILIKE :q OR university ILIKE :q)"
+        uparams["q"] = f"%{q.strip()}%"
+    urows = (
+        await db.execute(
+            text(
+                "SELECT raw_label, course_name, university, district_id, z_score, notes "
+                f"FROM unmapped_cutoffs WHERE {uwhere} ORDER BY raw_label"
+            ),
+            uparams,
+        )
+    ).mappings().all()
+    by_unmapped: dict[str, dict] = {}
+    for r in urows:
+        row = by_unmapped.setdefault(
+            r["raw_label"],
+            {
+                "course_code": "—",
+                "course_number": None,
+                "name_en": r["course_name"] or r["raw_label"],
+                "university_code": r["university"],
+                "is_active": False,
+                "is_unmapped": True,
+                "values": {},
+                "notes": {},
+            },
+        )
+        did = str(r["district_id"])
+        row["values"][did] = float(r["z_score"]) if r["z_score"] is not None else None
+        if r["notes"]:
+            row["notes"][did] = r["notes"]
+
+    all_rows = list(by_course.values()) + list(by_unmapped.values())
     return {
         "year": year,
         "districts": districts,
-        "rows": list(by_course.values()),
+        "rows": all_rows,
         "total_courses": len(by_course),
+        "total_unmapped": len(by_unmapped),
     }
 
 

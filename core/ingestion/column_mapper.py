@@ -31,6 +31,18 @@ _MIN_CONFIDENCE = 0.55
 _WORD_RE = re.compile(r"[A-Z0-9]+")
 # printed flags + bracketed stream qualifiers are not part of the course name
 _MARKS_RE = re.compile(r"[#*]")
+# a trailing single-letter track marker in the NAME part, e.g. ' - A' / ' - B'.
+# These mark admission tracks of ONE course (a stream/quota split), not
+# separate courses — the book's Uni-Code section lists only the base name.
+_VARIANT_SUFFIX_RE = re.compile(r"\s*-\s*[A-Z]\b")
+
+
+def strip_variant_suffix(label: str) -> str:
+    """'Management Studies (TV) - B [Any subject…] (Univ…)' ->
+       'Management Studies (TV) [Any subject…] (Univ…)'. Only single-letter
+    A/B/C track markers are removed; multi-word suffixes like ' - Mass Media'
+    are left intact (that ' - M' is not a bare letter)."""
+    return _VARIANT_SUFFIX_RE.sub(" ", label)
 
 
 def normalize_label(text: str) -> str:
@@ -158,6 +170,27 @@ async def suggest_mappings(
         if alias_hit and alias_hit in catalog:
             out.append(MappingSuggestion(col.column_key, label, alias_hit, 1.0, "alias"))
             continue
+
+        # 3.5) same-course track variant. When THIS book prints no code for the
+        #      column (name-only format) and the label carries a ' - A'/' - B'
+        #      track marker, the book's section lists only the BASE course. So
+        #      strip the marker and match the base against the section: both
+        #      'X - A' and 'X - B' resolve to the base's one code (e.g. 022R for
+        #      Management Studies (TV), 021L for Arts (SAB)) as stream variants.
+        #      This must beat the catalog rung below, because a catalog code
+        #      carrying the '- B' suffix (040R/040W/042L) only exists there from
+        #      a DIFFERENT year's book — it is not in THIS book, so it must not
+        #      be applied to this year. Kept below the auto-confirm threshold:
+        #      the admin still confirms and assigns streams (the existing
+        #      duplicate/stream-override flow), never silent.
+        if col.code is None and book is not None and label and _VARIANT_SUFFIX_RE.search(label):
+            base_code, base_conf, _ = book.match(strip_variant_suffix(label))
+            if base_code and base_conf >= _MIN_CONFIDENCE and base_code in catalog:
+                out.append(MappingSuggestion(
+                    col.column_key, label, base_code, min(round(base_conf, 3), 0.95),
+                    "book_variant",
+                ))
+                continue
 
         # 4) fuzzy duel: book section vs catalog names — RAW scores compared,
         #    book preferred on near-ties (same-year authority). The catalog

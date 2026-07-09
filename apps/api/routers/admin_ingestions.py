@@ -56,10 +56,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin_audit import log_admin_action
 from apps.api.dependencies import get_current_admin, get_db
 from apps.api.queue import enqueue_extract_pdf
-from apps.worker.jobs.ingest_zscores import ingest_zscores
+from apps.worker.jobs.ingest_zscores import (
+    apply_stream_overrides,
+    apply_unmapped_cutoffs,
+    ingest_zscores,
+)
 from core.config import settings
 from core.ingestion.grid_extractor import DISTRICTS_ORDER, parse_pages_spec
 from core.ingestion.handbook_diff import compute_handbook_diff, record_changes
+from core.ingestion.stream_tags import resolve_group_streams, suggest_stream_codes
+from core.ingestion.unicode_section import split_label
 from core.models.auth import User
 from core.models.cutoffs import (
     ExtractionColumn,
@@ -339,6 +345,14 @@ async def promote_ingestion(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
+        # Stream-variant columns from Gate 2 (e.g. 107L's Commerce vs
+        # Bio/Physical Science split) aren't in the stored CSV's plain values
+        # -- apply them now that the base rows exist. Skipped when a
+        # hand-reviewed CSV was uploaded instead: we can't assume the stored
+        # mapping's stream intent still matches a hand-edited replacement.
+        await apply_stream_overrides(db, str(run_id), exam_year)
+        # Codeless columns (real z-scores, no Uni-Code) -> unmapped_cutoffs.
+        await apply_unmapped_cutoffs(db, str(run_id), exam_year)
 
     # link the extraction run to the produced zscore run
     run.notes = f"promoted -> zscore run {summary['run_id']}"
@@ -405,16 +419,103 @@ async def reextract_with_pages(
     return IngestionCreateResponse(run_id=str(run_id), status="running", run_type="pdf_extraction")
 
 
+def _stream_set(col: ExtractionColumn) -> set[str]:
+    return {s.strip().upper() for s in (col.override_streams or "").split(",") if s.strip()}
+
+
+def _is_valid_stream_split(cols: list[ExtractionColumn]) -> bool:
+    """True if a group of confirmed columns sharing one course code is a
+    legitimate disjoint stream split (e.g. 107L's Commerce vs Bio/Physical
+    Science columns) rather than a real duplicate that must be resolved by
+    ignoring the extras.
+
+    Allowed shapes: at most one column with no override_streams (the
+    "general" column, feeding the normal cutoffs row as always), plus any
+    number of override-tagged columns whose stream sets are pairwise
+    disjoint. Anything else (two plain columns, or two override columns
+    sharing a stream) is a real conflict.
+    """
+    if len(cols) <= 1:
+        return True
+    plain = [c for c in cols if not _stream_set(c)]
+    overridden = [c for c in cols if _stream_set(c)]
+    if len(plain) > 1:
+        return False
+    seen: set[str] = set()
+    for c in overridden:
+        streams = _stream_set(c)
+        if not streams or (streams & seen):
+            return False
+        seen |= streams
+    return True
+
+
 def _duplicate_mappings(cols: list[ExtractionColumn]) -> dict[str, int]:
-    """Effective code -> #columns targeting it (ignored columns excluded)."""
-    counts: dict[str, int] = {}
+    """Effective code -> #columns targeting it, for codes where that's a real
+    conflict (ignored columns excluded; legitimate stream splits excluded)."""
+    by_code: dict[str, list[ExtractionColumn]] = {}
     for c in cols:
         if c.status == "ignored":
             continue
         code = c.mapped_course_code or c.suggested_course_code
         if code:
-            counts[code] = counts.get(code, 0) + 1
-    return {code: n for code, n in counts.items() if n > 1}
+            by_code.setdefault(code, []).append(c)
+    return {
+        code: len(group)
+        for code, group in by_code.items()
+        if len(group) > 1 and not _is_valid_stream_split(group)
+    }
+
+
+def _is_numeric_cell(v) -> bool:
+    """True if a grid cell holds an actual z-score (not NQC / blank)."""
+    if v is None:
+        return False
+    s = str(v).strip()
+    if not s or s.upper() == "NQC":
+        return False
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _columns_with_data(run_id: uuid.UUID) -> set[str] | None:
+    """column_keys whose grid values include >=1 real z-score, from the
+    {run_id}.grid.json artifact. None if the artifact is missing (unknown)."""
+    grid_path = _work_dir() / f"{run_id}.grid.json"
+    if not grid_path.exists():
+        return None
+    artifact = json.loads(grid_path.read_text(encoding="utf-8"))
+    keys: set[str] = set()
+    for gc in artifact.get("columns", []):
+        if any(_is_numeric_cell(v) for v in (gc.get("values") or {}).values()):
+            keys.add(gc["column_key"])
+    return keys
+
+
+def _group_stream_suggestions(cols: list[ExtractionColumn]) -> dict[int, list[str]]:
+    """Pre-filled override_streams per column. For columns that share a course
+    code (a same-course stream split), streams are assigned disjointly with the
+    complement rule (open 'any subject' column -> the non-ICT universe minus the
+    streams its siblings already claim); standalone columns fall back to their
+    own bracket tag."""
+    by_code: dict[str, list[ExtractionColumn]] = {}
+    for c in cols:
+        if c.status == "ignored":
+            continue
+        code = c.mapped_course_code or c.suggested_course_code
+        if code:
+            by_code.setdefault(code, []).append(c)
+
+    result: dict[int, list[str]] = {}
+    for code, grp in by_code.items():
+        if len(grp) > 1:
+            resolved = resolve_group_streams([g.raw_label for g in grp])
+            for g, streams in zip(grp, resolved):
+                result[g.column_id] = streams
+    return result
 
 
 @router.get("/ingestions/{run_id}/columns", response_model=ColumnListResponse)
@@ -435,13 +536,26 @@ async def list_columns(
     counts: dict[str, int] = {}
     for c in cols:
         counts[c.status] = counts.get(c.status, 0) + 1
+
+    group_streams = _group_stream_suggestions(cols)
+    with_data = _columns_with_data(run_id)
+
+    items = []
+    for c in cols:
+        out = ExtractionColumnOut.model_validate(c)
+        out.suggested_override_streams = group_streams.get(
+            c.column_id, suggest_stream_codes(c.raw_label)
+        )
+        out.has_data = None if with_data is None else (c.column_key in with_data)
+        items.append(out)
+
     return ColumnListResponse(
         run_status=run.status,
         cutoff_pages=run.cutoff_pages,
         total=len(cols),
         counts=counts,
         duplicate_mappings=_duplicate_mappings(cols),
-        items=[ExtractionColumnOut.model_validate(c) for c in cols],
+        items=items,
     )
 
 
@@ -458,7 +572,11 @@ async def update_column(
     if col is None or col.run_id != run_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Column not found for this run")
 
-    before = {"mapped_course_code": col.mapped_course_code, "status": col.status}
+    before = {
+        "mapped_course_code": col.mapped_course_code,
+        "status": col.status,
+        "override_streams": col.override_streams,
+    }
 
     if payload.mapped_course_code is not None:
         code = payload.mapped_course_code.strip().upper()
@@ -471,10 +589,36 @@ async def update_column(
         col.mapped_course_code = code
         col.status = "confirmed"
 
+    if payload.override_streams is not None:
+        streams = [s.strip().upper() for s in payload.override_streams.split(",") if s.strip()]
+        if streams:
+            valid = set(
+                (await db.execute(
+                    text("SELECT code FROM streams WHERE code = ANY(:codes)"), {"codes": streams}
+                )).scalars().all()
+            )
+            unknown = [s for s in streams if s not in valid]
+            if unknown:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                    detail=f"Unknown stream code(s): {', '.join(unknown)}")
+        col.override_streams = ",".join(streams) if streams else None
+
     if payload.status is not None:
         if payload.status == "confirmed" and not col.mapped_course_code:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 detail="Cannot confirm a column with no mapped_course_code")
+        if payload.status == "unmapped_kept":
+            # keep-without-code is only for a column that actually HAS z-scores
+            # to preserve (else it's just an empty column -> ignore). This is
+            # the "z-score table has it but the Uni-Code table doesn't" case.
+            with_data = _columns_with_data(run_id)
+            if with_data is not None and col.column_key not in with_data:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="This column has no z-score values to keep — use 'ignored' instead.",
+                )
+            col.mapped_course_code = None   # codeless by definition
+            col.override_streams = None
         col.status = payload.status
 
     col.updated_at = datetime.now(timezone.utc)
@@ -482,12 +626,18 @@ async def update_column(
         db, admin=admin, action_type="extraction_column.update",
         target_table="extraction_columns", target_id=str(column_id),
         before=before,
-        after={"mapped_course_code": col.mapped_course_code, "status": col.status},
+        after={
+            "mapped_course_code": col.mapped_course_code,
+            "status": col.status,
+            "override_streams": col.override_streams,
+        },
         request=request, notes=col.column_key,
     )
     await db.commit()
     await db.refresh(col)
-    return ExtractionColumnOut.model_validate(col)
+    out = ExtractionColumnOut.model_validate(col)
+    out.suggested_override_streams = suggest_stream_codes(col.raw_label)
+    return out
 
 
 @router.post("/ingestions/{run_id}/columns/confirm-suggested", response_model=BulkConfirmResponse)
@@ -568,19 +718,27 @@ async def confirm_mapping(
                    f"(e.g. {', '.join(c.column_key for c in pending[:5])})",
         )
     used = [c for c in cols if c.status == "confirmed" and c.mapped_course_code]
-    if not used:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="No confirmed columns to commit")
+    # columns preserved WITHOUT a Uni-Code (real z-scores, no code in the book)
+    kept_unmapped = [c for c in cols if c.status == "unmapped_kept"]
+    if not used and not kept_unmapped:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="No confirmed or kept columns to commit")
 
-    dup: dict[str, list[str]] = {}
+    by_code: dict[str, list[ExtractionColumn]] = {}
     for c in used:
-        dup.setdefault(c.mapped_course_code, []).append(c.column_key)
-    dups = {code: keys for code, keys in dup.items() if len(keys) > 1}
-    if dups:
-        detail = "; ".join(f"{code}: {', '.join(keys)}" for code, keys in list(dups.items())[:5])
+        by_code.setdefault(c.mapped_course_code, []).append(c)
+
+    bad_dups = {
+        code: grp for code, grp in by_code.items()
+        if len(grp) > 1 and not _is_valid_stream_split(grp)
+    }
+    if bad_dups:
+        detail = "; ".join(
+            f"{code}: {', '.join(c.column_key for c in grp)}" for code, grp in list(bad_dups.items())[:5]
+        )
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail=f"Multiple confirmed columns map to the same course — set the "
-                   f"extras to 'ignored' first. {detail}",
+            detail=f"Multiple confirmed columns map to the same course — set the extras to "
+                   f"'ignored', or mark them as distinct stream variants (override_streams). {detail}",
         )
 
     grid_path = _work_dir() / f"{run_id}.grid.json"
@@ -591,12 +749,15 @@ async def confirm_mapping(
     values_by_key: dict[str, dict[str, str | None]] = {
         c["column_key"]: c["values"] for c in artifact["columns"]
     }
-    for c in used:
+    for c in used + kept_unmapped:
         if c.column_key not in values_by_key:
             raise HTTPException(status.HTTP_409_CONFLICT,
                                 detail=f"Column {c.column_key} not in the grid artifact; re-extract")
 
-    # learn aliases: printed label -> confirmed code (next year resolves exactly)
+    # learn aliases: printed label -> confirmed code (next year resolves exactly).
+    # source carries the exam year (e.g. 'mapping_confirm:2023') so the admin
+    # aliases page shows which run learned it, not just a generic label.
+    alias_source = f"mapping_confirm:{run.year}"
     aliases_learned = 0
     for c in used:
         label = (c.raw_label or "").strip()
@@ -604,29 +765,89 @@ async def confirm_mapping(
             continue
         res = await db.execute(text(
             "INSERT INTO course_aliases (course_code, alias_text, source, confidence, is_verified) "
-            "VALUES (:code, :alias, 'mapping_confirm', 1.0, true) "
+            "VALUES (:code, :alias, :source, 1.0, true) "
             "ON CONFLICT ON CONSTRAINT uq_alias_per_course DO NOTHING"
-        ), {"code": c.mapped_course_code, "alias": label})
+        ), {"code": c.mapped_course_code, "alias": label, "source": alias_source})
         aliases_learned += res.rowcount or 0
 
-    # Step-4 CSV (headers are course codes — self-aliases from migration 17)
+    # One CSV column per course code (headers are course codes — self-aliases
+    # from migration 17). A code whose group has a plain (non-override)
+    # confirmed column uses its real values as always. A code where EVERY
+    # confirmed column is a stream-variant override (e.g. 107L, Commerce vs
+    # Bio/Physical Science) still gets a header so the base cutoffs row
+    # exists, but with blank values -- no single number is honest for it. The
+    # real per-stream numbers are written to course_stream_cutoff_overrides at
+    # promote time (apply_stream_overrides) via the overrides.json artifact
+    # below.
+    codes_sorted = sorted(
+        by_code.keys(),
+        key=lambda code: min((c.page_number, c.column_key) for c in by_code[code]),
+    )
+    representative: dict[str, ExtractionColumn | None] = {
+        code: next((c for c in grp if not _stream_set(c)), None)
+        for code, grp in by_code.items()
+    }
+    override_columns = [c for c in used if _stream_set(c)]
+
     buf = io.StringIO()
     writer = csv.writer(buf)
-    used_sorted = sorted(used, key=lambda c: (c.page_number, c.column_key))
-    writer.writerow([""] + [c.mapped_course_code for c in used_sorted])
+    writer.writerow([""] + codes_sorted)
     for district in DISTRICTS_ORDER:
         row = [district]
-        for c in used_sorted:
-            row.append(values_by_key[c.column_key].get(district) or "")
+        for code in codes_sorted:
+            rep = representative[code]
+            row.append(values_by_key[rep.column_key].get(district) or "" if rep else "")
         writer.writerow(row)
     (_work_dir() / f"{run_id}.csv").write_text(buf.getvalue(), encoding="utf-8-sig")
 
-    # diff with the whole-book safeguard
-    extracted: dict[str, dict[str, str]] = {}
-    for c in used_sorted:
-        extracted[c.mapped_course_code] = {
-            d: v for d, v in values_by_key[c.column_key].items() if v is not None
+    overrides_path = _work_dir() / f"{run_id}.overrides.json"
+    if override_columns:
+        overrides_payload = {
+            "columns": [
+                {
+                    "course_code": c.mapped_course_code,
+                    "column_key": c.column_key,
+                    "stream_codes": sorted(_stream_set(c)),
+                    "raw_label": c.raw_label,
+                    "values": values_by_key[c.column_key],
+                }
+                for c in override_columns
+            ]
         }
+        overrides_path.write_text(json.dumps(overrides_payload), encoding="utf-8")
+    else:
+        overrides_path.unlink(missing_ok=True)  # clear a stale artifact from a prior attempt
+
+    # codeless columns: real z-scores, no Uni-Code -> preserved verbatim into
+    # unmapped_cutoffs at promote (apply_unmapped_cutoffs), never into the CSV.
+    unmapped_path = _work_dir() / f"{run_id}.unmapped.json"
+    if kept_unmapped:
+        unmapped_payload = {
+            "columns": [
+                {
+                    "column_key": c.column_key,
+                    "raw_label": c.raw_label,
+                    "course_name": split_label(c.raw_label)[0] or None,
+                    "university": split_label(c.raw_label)[1] or None,
+                    "values": values_by_key[c.column_key],
+                }
+                for c in kept_unmapped
+            ]
+        }
+        unmapped_path.write_text(json.dumps(unmapped_payload), encoding="utf-8")
+    else:
+        unmapped_path.unlink(missing_ok=True)
+
+    # diff with the whole-book safeguard (uses the same representative choice
+    # as the CSV -- a split-only code compares blank->blank, no false delta,
+    # except a one-time transition the first year a code becomes split)
+    extracted: dict[str, dict[str, str]] = {}
+    for code in codes_sorted:
+        rep = representative[code]
+        extracted[code] = (
+            {d: v for d, v in values_by_key[rep.column_key].items() if v is not None}
+            if rep else {}
+        )
     presence_path = _work_dir() / f"{run_id}.presence.json"
     present = (
         set(json.loads(presence_path.read_text(encoding="utf-8")))
@@ -643,7 +864,10 @@ async def confirm_mapping(
     run.status = "success"
     run.notes = (
         f"mapping confirmed: {len(used)} columns used, {ignored} ignored, "
-        f"{aliases_learned} new aliases learned; changes: "
+        f"{aliases_learned} new aliases learned"
+        + (f", {len(override_columns)} stream-variant column(s)" if override_columns else "")
+        + (f", {len(kept_unmapped)} kept without code" if kept_unmapped else "")
+        + "; changes: "
         + (", ".join(f"{k}={v}" for k, v in sorted(change_counts.items())) or "none")
         + " — CSV ready for review & promote"
     )
@@ -652,7 +876,9 @@ async def confirm_mapping(
         target_table="ingestion_runs", target_id=str(run_id),
         before=None,
         after={"columns_used": len(used), "ignored": ignored,
-               "aliases_learned": aliases_learned, "changes": change_counts},
+               "aliases_learned": aliases_learned, "changes": change_counts,
+               "stream_variant_columns": len(override_columns),
+               "unmapped_kept_columns": len(kept_unmapped)},
         request=request,
     )
     await db.commit()
@@ -662,6 +888,8 @@ async def confirm_mapping(
         csv_ready=True,
         changes=change_counts,
         aliases_learned=aliases_learned,
+        stream_variant_columns=len(override_columns),
+        unmapped_kept_columns=len(kept_unmapped),
     )
 
 

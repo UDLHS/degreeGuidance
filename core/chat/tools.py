@@ -280,23 +280,39 @@ async def lookup_course(session: AsyncSession, course_number: str) -> str:
         sections.append(f"{heading}{r.content}")
     factsheet = "\n\n".join(sections)
 
-    # Recent cutoffs (latest year, national selection basis)
+    # Recent cutoffs (latest year, national selection basis). UNIONs in the
+    # per-stream overrides too (e.g. 107L Food Business Management has no
+    # general cutoff -- see course_stream_cutoff_overrides) so a stream-split
+    # course doesn't silently disappear from this factsheet.
     cutoff_rows = (await session.execute(
         text(
-            "SELECT cu.course_code, d.name_en AS district_name, cu.z_score "
+            "SELECT cu.course_code, d.name_en AS district_name, cu.z_score, NULL AS stream_name "
             "FROM z_score_cutoffs cu "
             "JOIN districts d ON d.district_id = cu.district_id "
             "WHERE cu.course_code LIKE :prefix "
             "  AND cu.year = (SELECT MAX(year) FROM z_score_cutoffs) "
             "  AND cu.z_score IS NOT NULL "
-            "ORDER BY cu.course_code, cu.z_score DESC "
+            "UNION ALL "
+            "SELECT so.course_code, d.name_en AS district_name, so.z_score, s.name_en AS stream_name "
+            "FROM course_stream_cutoff_overrides so "
+            "JOIN districts d ON d.district_id = so.district_id "
+            "JOIN streams s ON s.stream_id = so.stream_id "
+            "WHERE so.course_code LIKE :prefix "
+            "  AND so.year = (SELECT MAX(year) FROM z_score_cutoffs) "
+            "  AND so.z_score IS NOT NULL "
+            "ORDER BY 1, 3 DESC "
             "LIMIT 40"
         ),
         {"prefix": f"{course_number}%"},
     )).fetchall()
 
     if cutoff_rows:
-        cutoff_lines = [f"- {r.course_code} ({r.district_name}): {float(r.z_score):.4f}" for r in cutoff_rows]
+        cutoff_lines = [
+            f"- {r.course_code} ({r.district_name}"
+            + (f", {r.stream_name} stream" if r.stream_name else "")
+            + f"): {float(r.z_score):.4f}"
+            for r in cutoff_rows
+        ]
         cutoff_block = "**Recent Z-score cutoffs (2023, by district):**\n" + "\n".join(cutoff_lines)
         return f"{factsheet}\n\n{cutoff_block}"
 
@@ -307,14 +323,24 @@ async def get_cutoff_trend(session: AsyncSession, course_code: str) -> str:
     """Return year-by-year Z-score cutoff history for a specific course-university code."""
     course_code = course_code.strip().upper()
 
+    # UNION in per-stream overrides (e.g. 107L has no general cutoff row --
+    # see course_stream_cutoff_overrides) so a stream-split course still
+    # shows its real history instead of "no cutoff history found".
     rows = (await session.execute(
         text(
-            "SELECT cu.year, d.name_en AS district_name, cu.z_score "
+            "SELECT cu.year, d.name_en AS district_name, cu.z_score, NULL AS stream_name "
             "FROM z_score_cutoffs cu "
             "JOIN districts d ON d.district_id = cu.district_id "
             "WHERE cu.course_code = :cc "
             "  AND cu.z_score IS NOT NULL "
-            "ORDER BY cu.year DESC, cu.z_score DESC "
+            "UNION ALL "
+            "SELECT so.year, d.name_en AS district_name, so.z_score, s.name_en AS stream_name "
+            "FROM course_stream_cutoff_overrides so "
+            "JOIN districts d ON d.district_id = so.district_id "
+            "JOIN streams s ON s.stream_id = so.stream_id "
+            "WHERE so.course_code = :cc "
+            "  AND so.z_score IS NOT NULL "
+            "ORDER BY 1 DESC, 3 DESC "
             "LIMIT 60"
         ),
         {"cc": course_code},
@@ -336,7 +362,8 @@ async def get_cutoff_trend(session: AsyncSession, course_code: str) -> str:
         if r.year != current_year:
             current_year = r.year
             lines.append(f"\n*{r.year}:*")
-        lines.append(f"  - {r.district_name}: {float(r.z_score):.4f}")
+        stream_suffix = f" ({r.stream_name} stream)" if r.stream_name else ""
+        lines.append(f"  - {r.district_name}{stream_suffix}: {float(r.z_score):.4f}")
 
     lines.append(
         "\nNote: Cutoffs change annually based on the number of applicants and seats. "

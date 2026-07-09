@@ -58,12 +58,19 @@ class EligibilityInputError(ValueError):
 # The §8.1 core query, verbatim, with bound parameters. The partial index
 # idx_zscore_district_lookup (year, district_id, z_score) WHERE z_score IS NOT NULL
 # is the hot path for the year/district/z_score filter.
+#
+# course_stream_cutoff_overrides: a handful of courses print ONE Uni-Code but
+# have genuinely different cutoffs per stream (measured case: 107L, Food
+# Business Management). For those, z_score_cutoffs.z_score is NULL and the
+# real number lives in the override table keyed by the student's own stream;
+# the LEFT JOIN + COALESCE make every other course's row (no override exists)
+# behave exactly as before this table existed.
 _CORE_QUERY = text(
     """
     SELECT
       zc.cutoff_id,
       zc.year,
-      zc.z_score                       AS cutoff_z_score,
+      COALESCE(so.z_score, zc.z_score) AS cutoff_z_score,
       c.course_code,
       c.course_number,
       c.name_en                        AS course_name,
@@ -81,17 +88,22 @@ _CORE_QUERY = text(
     FROM z_score_cutoffs zc
     JOIN courses      c ON c.course_code   = zc.course_code
     JOIN universities u ON u.university_id = c.university_id
+    LEFT JOIN course_stream_cutoff_overrides so
+      ON  so.course_code  = zc.course_code
+      AND so.district_id  = zc.district_id
+      AND so.year         = zc.year
+      AND so.stream_id    = :student_stream_id
     WHERE zc.year         = :exam_year
       AND zc.district_id  = :district_id
-      AND zc.z_score IS NOT NULL
-      AND zc.z_score      <= :student_z_score
+      AND COALESCE(so.z_score, zc.z_score) IS NOT NULL
+      AND COALESCE(so.z_score, zc.z_score) <= :student_z_score
       AND c.is_active     = TRUE
       AND EXISTS (
         SELECT 1 FROM course_stream_eligibility cse
         WHERE cse.course_code = c.course_code
           AND cse.stream_id   = :student_stream_id
       )
-    ORDER BY zc.z_score DESC
+    ORDER BY cutoff_z_score DESC
     """
 )
 

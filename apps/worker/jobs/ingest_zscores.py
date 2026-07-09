@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import json
 import re
 import sys
 from datetime import datetime, timezone
@@ -31,9 +32,20 @@ from typing import Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import settings
 from core.db import AsyncSessionLocal
-from core.models import District, CourseAlias, ZScoreCutoff, IngestionRun, ParseError
+from core.models import (
+    District,
+    CourseAlias,
+    CourseStreamCutoffOverride,
+    Stream,
+    UnmappedCutoff,
+    ZScoreCutoff,
+    IngestionRun,
+    ParseError,
+)
 
 
 # Validation bounds
@@ -239,6 +251,138 @@ async def ingest_zscores(
             "processed": processed,
             "failed": failed,
         }
+
+
+async def apply_stream_overrides(db: AsyncSession, run_id: str, exam_year: int) -> dict:
+    """Apply a run's stream-variant columns (Gate 2's {run_id}.overrides.json,
+    written by confirm_mapping when >1 confirmed column legitimately shares a
+    course code via disjoint stream splits) into
+    course_stream_cutoff_overrides, and annotate the affected z_score_cutoffs
+    rows' notes with the per-stream breakdown.
+
+    A no-op when the run has no such artifact -- true for the overwhelming
+    majority of runs, since this only exists for courses like 107L (Food
+    Business Management) whose handbook cutoff table carries different
+    z-scores per stream under one Uni-Code. Call AFTER ingest_zscores() has
+    written the run's normal CSV, so the base rows already exist to annotate.
+    """
+    artifact_path = Path(settings.ingestion_work_dir) / f"{run_id}.overrides.json"
+    if not artifact_path.exists():
+        return {"rows_written": 0, "courses": 0}
+
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    columns = payload.get("columns", [])
+    if not columns:
+        return {"rows_written": 0, "courses": 0}
+
+    district_rows = (await db.scalars(select(District))).all()
+    district_id_by_code = {d.code: d.district_id for d in district_rows}
+    stream_rows = (await db.scalars(select(Stream))).all()
+    stream_id_by_code = {s.code: s.stream_id for s in stream_rows}
+
+    override_rows: list[dict] = []
+    # (course_code, district_id) -> ["STREAM_CODE: 1.2345", ...] for the notes summary
+    summary: dict[tuple[str, int], list[str]] = {}
+
+    for col in columns:
+        course_code = col["course_code"]
+        stream_codes = [s for s in (col.get("stream_codes") or []) if s in stream_id_by_code]
+        values = col.get("values") or {}
+        for raw_district, raw_value in values.items():
+            district_id = district_id_by_code.get(normalize_district_label(raw_district))
+            if district_id is None:
+                continue  # unknown district text -- same tolerance as ingest_zscores itself
+            z_score, note = parse_zscore_value(raw_value)
+            for stream_code in stream_codes:
+                override_rows.append({
+                    "year": exam_year,
+                    "course_code": course_code,
+                    "district_id": district_id,
+                    "stream_id": stream_id_by_code[stream_code],
+                    "z_score": z_score,
+                    "notes": note,
+                })
+            label = "/".join(stream_codes) if stream_codes else "?"
+            display = f"{z_score:.4f}" if z_score is not None else (note or "—")
+            summary.setdefault((course_code, district_id), []).append(f"{label}: {display}")
+
+    if override_rows:
+        stmt = pg_insert(CourseStreamCutoffOverride.__table__).values(override_rows)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_stream_override_year_course_district_stream",
+            set_={"z_score": stmt.excluded.z_score, "notes": stmt.excluded.notes},
+        )
+        await db.execute(stmt)
+
+    # Annotate the base row so the admin matrix's hover-note shows the
+    # per-stream breakdown instead of a bare blank cell (its own z_score stays
+    # NULL -- no single number is honest for these courses).
+    for (course_code, district_id), fragments in summary.items():
+        note_text = "Stream-specific cutoffs — " + "; ".join(fragments)
+        await db.execute(
+            text(
+                "UPDATE z_score_cutoffs SET notes = :note "
+                "WHERE course_code = :c AND district_id = :d AND year = :y"
+            ),
+            {"note": note_text, "c": course_code, "d": district_id, "y": exam_year},
+        )
+
+    await db.commit()
+    return {"rows_written": len(override_rows), "courses": len({c for c, _ in summary})}
+
+
+async def apply_unmapped_cutoffs(db: AsyncSession, run_id: str, exam_year: int) -> dict:
+    """Apply a run's codeless columns (Gate 2's {run_id}.unmapped.json — columns
+    with real z-scores but NO Uni-Code in the book) into unmapped_cutoffs,
+    keyed by the printed label instead of a course code. A no-op when the run
+    has no such artifact. Never touches z_score_cutoffs. Call at promote, so
+    codeless data goes live alongside the normal cutoffs."""
+    artifact_path = Path(settings.ingestion_work_dir) / f"{run_id}.unmapped.json"
+    if not artifact_path.exists():
+        return {"rows_written": 0, "columns": 0}
+
+    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    columns = payload.get("columns", [])
+    if not columns:
+        return {"rows_written": 0, "columns": 0}
+
+    district_rows = (await db.scalars(select(District))).all()
+    district_id_by_code = {d.code: d.district_id for d in district_rows}
+
+    rows: list[dict] = []
+    for col in columns:
+        raw_label = col["raw_label"]
+        for raw_district, raw_value in (col.get("values") or {}).items():
+            district_id = district_id_by_code.get(normalize_district_label(raw_district))
+            if district_id is None:
+                continue
+            z_score, note = parse_zscore_value(raw_value)
+            rows.append({
+                "run_id": run_id,
+                "year": exam_year,
+                "raw_label": raw_label,
+                "course_name": col.get("course_name"),
+                "university": col.get("university"),
+                "district_id": district_id,
+                "z_score": z_score,
+                "notes": note,
+            })
+
+    if rows:
+        stmt = pg_insert(UnmappedCutoff.__table__).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_unmapped_year_label_district",
+            set_={
+                "z_score": stmt.excluded.z_score,
+                "notes": stmt.excluded.notes,
+                "run_id": stmt.excluded.run_id,
+                "course_name": stmt.excluded.course_name,
+                "university": stmt.excluded.university,
+            },
+        )
+        await db.execute(stmt)
+        await db.commit()
+    return {"rows_written": len(rows), "columns": len({c["raw_label"] for c in columns})}
 
 
 # Arq worker job wrapper (used by admin UI in Week 2)

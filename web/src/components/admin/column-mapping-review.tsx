@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, CheckCheck, EyeOff, RotateCcw, Sparkles } from "lucide-react";
+import { Archive, Check, CheckCheck, EyeOff, RotateCcw, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,10 @@ type Column = {
   suggested_course_code: string | null;
   suggestion_confidence: number | null;
   mapped_course_code: string | null;
-  status: "pending" | "confirmed" | "ignored";
+  status: "pending" | "confirmed" | "ignored" | "unmapped_kept";
+  override_streams: string | null;
+  suggested_override_streams: string[];
+  has_data: boolean | null;
 };
 
 type ColumnsResponse = {
@@ -33,6 +36,11 @@ const STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800",
   confirmed: "bg-green-100 text-green-800",
   ignored: "bg-zinc-200 text-zinc-600",
+  unmapped_kept: "bg-blue-100 text-blue-800",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  unmapped_kept: "kept (no code)",
 };
 
 export function ColumnMappingReview({
@@ -49,6 +57,7 @@ export function ColumnMappingReview({
   const [finalizing, setFinalizing] = useState(false);
   const [pendingOnly, setPendingOnly] = useState(true);
   const [edits, setEdits] = useState<Record<number, string>>({});
+  const [streamEdits, setStreamEdits] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -138,7 +147,7 @@ export function ColumnMappingReview({
           <div className="flex flex-wrap items-center gap-1.5">
             {Object.entries(data.counts).map(([s, n]) => (
               <span key={s} className={cn("rounded-md px-2 py-0.5 text-xs font-medium capitalize", STATUS_STYLES[s] ?? "bg-muted")}>
-                {n} {s}
+                {n} {STATUS_LABEL[s] ?? s}
               </span>
             ))}
           </div>
@@ -148,7 +157,9 @@ export function ColumnMappingReview({
         {dupEntries.length > 0 && (
           <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Multiple columns target the same course: {dupEntries.map(([c, n]) => `${c} ×${n}`).join(", ")}.
-            Real duplicates (e.g. per-stream columns) — keep one and set the other to Ignore before finalizing.
+            If these are genuinely the same course with different per-stream cutoffs (e.g. Commerce vs
+            Bio/Physical Science), give each one distinct stream codes below instead of ignoring — otherwise
+            keep one and set the other to Ignore.
           </p>
         )}
 
@@ -172,6 +183,12 @@ export function ColumnMappingReview({
         <div className="max-h-[520px] space-y-1.5 overflow-y-auto pr-1">
           {items.map((c) => {
             const editVal = edits[c.column_id] ?? "";
+            const streamEditVal =
+              streamEdits[c.column_id] ??
+              c.override_streams ??
+              c.suggested_override_streams.join(",") ??
+              "";
+            const isDuplicateTarget = !!(c.mapped_course_code && data.duplicate_mappings?.[c.mapped_course_code]);
             return (
               <div key={c.column_id} className="rounded-lg border px-3 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -179,10 +196,15 @@ export function ColumnMappingReview({
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[11px] text-muted-foreground">{c.column_key}</span>
                       <span className={cn("rounded-md px-1.5 py-0.5 text-[10px] font-medium capitalize", STATUS_STYLES[c.status])}>
-                        {c.status}
+                        {STATUS_LABEL[c.status] ?? c.status}
                       </span>
                       {c.mapped_course_code && (
                         <span className="font-mono text-xs font-semibold">→ {c.mapped_course_code}</span>
+                      )}
+                      {c.override_streams && (
+                        <span className="rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
+                          streams: {c.override_streams}
+                        </span>
                       )}
                     </div>
                     <p className="mt-0.5 truncate text-sm">{c.raw_label}</p>
@@ -214,8 +236,23 @@ export function ColumnMappingReview({
                           onClick={() => patchColumn(c, { mapped_course_code: editVal.trim().toUpperCase() })}>
                           Set
                         </Button>
+                        {c.has_data && (
+                          <Button size="sm" variant="outline" disabled={busyId === c.column_id}
+                            title="Preserve these z-scores without a Uni-Code (for a course not in the book's code list)"
+                            onClick={() => patchColumn(c, { status: "unmapped_kept" })}>
+                            <Archive className="mr-1 h-3.5 w-3.5" aria-hidden /> Keep (no code)
+                          </Button>
+                        )}
                         <Button size="sm" variant="ghost" disabled={busyId === c.column_id}
-                          onClick={() => patchColumn(c, { status: "ignored" })}>
+                          onClick={() => {
+                            if (c.has_data && !confirm(
+                              `This column has real z-score values` +
+                              (data.cutoff_pages ? ` (pages ${data.cutoff_pages})` : "") +
+                              `. Ignoring drops that cutoff data. If it's a real course with no ` +
+                              `Uni-Code, use "Keep (no code)" instead. Ignore anyway?`
+                            )) return;
+                            patchColumn(c, { status: "ignored" });
+                          }}>
                           <EyeOff className="mr-1 h-3.5 w-3.5" aria-hidden /> Ignore
                         </Button>
                       </>
@@ -227,6 +264,39 @@ export function ColumnMappingReview({
                     )}
                   </div>
                 </div>
+
+                {c.status === "confirmed" && (isDuplicateTarget || c.override_streams) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t pt-2">
+                    <span className="text-[11px] text-muted-foreground">
+                      Same course as another column? Give this one its own stream(s) instead of ignoring:
+                    </span>
+                    <Input
+                      value={streamEditVal}
+                      onChange={(e) => setStreamEdits((p) => ({ ...p, [c.column_id]: e.target.value }))}
+                      placeholder={c.suggested_override_streams.join(",") || "e.g. COMMERCE"}
+                      className="h-7 w-56 font-mono text-[11px] uppercase"
+                    />
+                    {c.suggested_override_streams.length > 0 && streamEditVal !== c.suggested_override_streams.join(",") && (
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+                        disabled={busyId === c.column_id}
+                        onClick={() => setStreamEdits((p) => ({ ...p, [c.column_id]: c.suggested_override_streams.join(",") }))}>
+                        <Sparkles className="mr-1 h-3 w-3" aria-hidden /> Use {c.suggested_override_streams.join(",")}
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]"
+                      disabled={busyId === c.column_id}
+                      onClick={() => patchColumn(c, { override_streams: streamEditVal.trim().toUpperCase() })}>
+                      Save streams
+                    </Button>
+                    {c.override_streams && (
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
+                        disabled={busyId === c.column_id}
+                        onClick={() => { setStreamEdits((p) => ({ ...p, [c.column_id]: "" })); patchColumn(c, { override_streams: "" }); }}>
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
