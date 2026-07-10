@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BookOpen,
+  Bot,
   FileText,
   Grid3x3,
   LayoutDashboard,
@@ -21,6 +22,7 @@ const NAV = [
   { href: "/admin/ingestions", label: "Ingestions", icon: Upload },
   { href: "/admin/cutoffs", label: "Cutoffs", icon: Grid3x3 },
   { href: "/admin/conversations", label: "Conversations", icon: MessagesSquare },
+  { href: "/admin/agent", label: "AI Advisor", icon: Bot },
   { href: "/admin/aliases", label: "Aliases", icon: Tags },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/requirements", label: "Subject Rules", icon: ListChecks },

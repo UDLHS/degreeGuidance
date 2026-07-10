@@ -12,19 +12,18 @@ The model decides which tools to use; the system prompt guides the decision.
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any
 
 from google import genai
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.chat.agent_config import AgentSettings, resolve_agent_settings
 from core.chat.tools import find_course, get_cutoff_trend, lookup_course, search_knowledge, search_web
-from core.config import settings
 
 log = logging.getLogger(__name__)
 
-MAX_TOOL_TURNS = 6   # allow more turns when web search + DB tools both fire
+MAX_TOOL_TURNS = 6   # fallback bound; the active AgentConfig can override (1..12)
 
 # ---------------------------------------------------------------------------
 # Tool declarations (function-calling tools backed by our DB / factsheet KB)
@@ -92,8 +91,8 @@ FUNCTION_DECLARATIONS = [
     types.FunctionDeclaration(
         name="get_cutoff_trend",
         description=(
-            "Get the year-by-year UGC Z-score cutoff history (2019–2023) for a specific "
-            "course at a specific university, identified by its full Uni-Code "
+            "Get the year-by-year UGC Z-score cutoff history (every recorded year) for a "
+            "specific course at a specific university, identified by its full Uni-Code "
             "(course number + university letter). "
             "Examples: '008B'=Engineering at Moratuwa, '001A'=Medicine at Colombo, "
             "'012A'=Computer Science at UCSC, '008A'=Engineering at Peradeniya. "
@@ -145,62 +144,16 @@ FUNCTION_DECLARATIONS = [
 # System prompt
 # ---------------------------------------------------------------------------
 
-def _build_system_prompt(context: dict[str, Any] | None, web_search: bool = False) -> str:
-    today = date.today().strftime("%B %d, %Y")
-
-    prompt = f"""You are a senior academic advisor specialising in Sri Lankan state university admissions and graduate career pathways. Today is {today}.
-
-## Your scope — everything a student needs to decide on a degree
-
-You answer any question relevant to the decision, including:
-- Specific degree programmes, curricula, Z-score cutoffs, subject requirements
-- Career paths, graduate salaries, job market demand in Sri Lanka
-- University rankings and reputation
-- Scholarship opportunities (government, university, foreign)
-- Postgraduate and study-abroad options
-- Professional body requirements (IESL, SLMC, ACCA, CIMA, ICASL, SLIM)
-- Industry growth trends relevant to career choice
-
-## Your tools and when to use them
-
-- **`lookup_course`** — fetch the full degree factsheet + UGC Z-score cutoffs. Use for any question about a specific degree.
-- **`get_cutoff_trend`** — year-by-year cutoff history (2019–2023). Use when a student asks if cutoffs are rising or falling.
-- **`search_knowledge`** — search the local factsheet knowledge base. Use for curriculum details, subject areas, general degree comparisons.
-- **`find_course`** — search the database by name or abbreviation to get the course code. Always call this first for any course you don't immediately know the code for.
-- **`search_web`** — search the live internet. Use for: salaries, job demand, top employers, professional body requirements, scholarships, postgraduate options, university rankings, industry trends. Results are marked [Trusted source] for authoritative sites.
-
-## MANDATORY: When you don't know the course code
-If a student mentions a course by name, abbreviation, or nickname you don't immediately recognise (e.g. "ECS", "Bio Systems", "Quantity Surveying", "Textile Technology", "Town Planning", "Nursing", "Law", "ICT"), you **must** do ALL of the following before answering:
-1. Call `find_course` with the name/abbreviation → returns the real course code(s)
-2. Call `lookup_course` with the course number found → gets the factsheet and cutoffs
-3. Only THEN answer the student
-
-**NEVER say "I don't have data on this course", "this course is not listed", or "I cannot find this" without first calling `find_course`.** The database has all 261 UGC courses. If `find_course` returns no results, THEN call `search_knowledge` and `search_web`.
-
-## MANDATORY: Answer format
-
-Structure every response with these parts (use the headings when the answer is longer than 2–3 sentences):
-
-**What the degree/factsheet says:** [curriculum highlights, career paths from the factsheet — use `lookup_course` or `search_knowledge`]
-
-**What the current market says:** [Sri Lanka job market, salaries, demand — use `search_web`; only include if relevant and you found real data]
-
-**For you specifically:** [Is the student competitive? Does it match their interests? Use their Z-score, district, and stated interests from the profile below.]
-
-**Next step:** [One concrete action — e.g. "Visit mrt.ac.lk/engineering to check the 2024 intake date" or "Call the Kelaniya ECS department on +94 11 290 3904 to confirm the aptitude test date."]
-
-For short factual questions (e.g. "What is the cutoff for 008B?"), skip the headings and answer directly — one to three sentences.
-
-## Rules
-1. **Never guess a Z-score cutoff.** Always pull from the database via `lookup_course` or `get_cutoff_trend`.
-2. **For career, job, salary, or industry questions**, always: (a) call `search_knowledge` first for factsheet career paths, THEN (b) call `search_web` for current Sri Lanka market data. Synthesise both. Never answer career questions from memory alone.
-3. **If `search_web` returns no [Trusted source] results**, call `search_web` again with a more specific query targeting the exact domain — e.g. `"software engineer salary topjobs.lk 2024"` or `"engineering jobs Sri Lanka dailyft.lk"`.
-4. **Cite sources explicitly.** Write "According to the Engineering factsheet..." or "Source: topjobs.lk — ...". Discard untrustworthy web results silently.
-5. **Never fabricate statistics.** If unverified, say so.
-6. **Be direct.** "I recommend..." not "You might consider...".
-7. **Be honest about data age.** "These are 2023 cutoffs — they shift 0.05–0.10 each year."
-8. **Personalise using the student profile.** Mention their Z-score margin, district, and interests when relevant — never generic.
-"""
+def _build_system_prompt(
+    base_prompt: str, context: dict[str, Any] | None, web_search: bool = False
+) -> str:
+    """Append the structural sections (web-search mode + student profile) to
+    the admin-configurable base prompt. The base comes from
+    core/chat/agent_config.py — the active agent_configs row (or the built-in
+    default), rendered with live facts ({available_years}, {latest_year},
+    {course_count}, {today}). The profile/eligible-table blocks below stay
+    code-owned: they are data plumbing, not admin-tunable tone/policy."""
+    prompt = base_prompt
 
     if web_search:
         prompt += (
@@ -313,11 +266,22 @@ async def chat(
     history: list[dict[str, str]],
     new_message: str,
     context: dict[str, Any] | None = None,
-    web_search: bool = True,
+    web_search: bool | None = None,
+    agent: AgentSettings | None = None,
 ) -> tuple[str, list[str]]:
-    """Run the agentic loop. Returns (reply_text, tools_used_names)."""
+    """Run the agentic loop. Returns (reply_text, tools_used_names).
 
-    system_prompt = _build_system_prompt(context, web_search=web_search)
+    Behavior (prompt/model/turn-bound/web-search default) comes from the active
+    admin AgentConfig, or the built-in default when none is active. `agent` may
+    be passed explicitly (the admin sandbox tests a draft config this way);
+    `web_search=None` means "use the config's default"."""
+
+    if agent is None:
+        agent = await resolve_agent_settings(session)
+    if web_search is None:
+        web_search = agent.web_search_default
+
+    system_prompt = _build_system_prompt(agent.base_prompt, context, web_search=web_search)
 
     # Build Gemini contents from saved history
     contents: list[types.Content] = []
@@ -338,9 +302,9 @@ async def chat(
         tools=tool_config,
     )
 
-    for turn in range(MAX_TOOL_TURNS):
+    for turn in range(agent.max_tool_turns):
         response = gen_client.models.generate_content(
-            model=settings.gemini_chat_model,
+            model=agent.model_name,
             contents=contents,
             config=config,
         )

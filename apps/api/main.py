@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from apps.api.routers import (
+    admin_agent,
     admin_aliases,
     admin_conversations,
     admin_courses,
@@ -36,6 +37,7 @@ app.include_router(eligibility.router)
 app.include_router(recommendations.router)
 app.include_router(reference.router)
 app.include_router(auth.router)
+app.include_router(admin_agent.router)
 app.include_router(admin_aliases.router)
 app.include_router(admin_conversations.router)
 app.include_router(admin_courses.router)

@@ -44,7 +44,9 @@ class ChatRequest(BaseModel):
     student_id: str | None = Field(default=None)
     message: str = Field(..., min_length=1, max_length=2000)
     context: dict[str, Any] | None = Field(default=None)
-    web_search: bool = Field(default=True)
+    # None = use the active AgentConfig's default (the student UI always sends
+    # an explicit value from its toggle, so its behavior is unchanged).
+    web_search: bool | None = Field(default=None)
 
 
 class ChatResponse(BaseModel):
