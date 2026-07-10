@@ -14,9 +14,10 @@ from __future__ import annotations
 from arq.connections import RedisSettings
 
 from apps.worker.jobs.extract_pdf import extract_pdf_job
+from apps.worker.jobs.index_factsheets import index_factsheet_job
 from core.config import settings
 
 
 class WorkerSettings:
-    functions = [extract_pdf_job]
+    functions = [extract_pdf_job, index_factsheet_job]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)

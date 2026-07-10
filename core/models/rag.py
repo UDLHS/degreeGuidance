@@ -1,7 +1,9 @@
-"""ORM models for RAG knowledge base — document_sources and chunks."""
+"""ORM models for RAG knowledge base — factsheets (source of truth,
+migration 41), document_sources and chunks (the embedded index)."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -14,12 +16,36 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
 
 EMBEDDING_DIM = 768  # gemini-embedding-001 with output_dimensionality=768
+
+
+class Factsheet(Base):
+    """Editable factsheet markdown — the SOURCE the index job reads (migration
+    41; decision D3). One row per 3-digit course number. content_hash vs the
+    indexed document_sources.content_hash is the staleness signal."""
+
+    __tablename__ = "factsheets"
+
+    course_number: Mapped[str] = mapped_column(String(10), primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class DocumentSource(Base):

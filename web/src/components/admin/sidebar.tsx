@@ -26,6 +26,7 @@ const NAV = [
   { href: "/admin/aliases", label: "Aliases", icon: Tags },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/requirements", label: "Subject Rules", icon: ListChecks },
+  { href: "/admin/factsheets", label: "Factsheets", icon: FileText },
   { href: "/admin/admins", label: "Admins", icon: ShieldCheck },
 ];
 
@@ -49,11 +50,6 @@ export function Sidebar() {
           </Link>
         );
       })}
-      <p className="mt-3 px-3 py-1 text-xs text-muted-foreground/70">Slice 2 — later</p>
-      <span className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground/40">
-        <FileText className="h-4 w-4" aria-hidden />
-        Factsheets
-      </span>
     </nav>
   );
 }

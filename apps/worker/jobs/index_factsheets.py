@@ -1,14 +1,18 @@
 """Factsheet indexing job.
 
-Reads all markdown factsheets from content/factsheets/, chunks them by H2
-section, embeds each chunk with gemini-embedding-001 (768 dims via Matryoshka),
-and upserts into document_sources + chunks tables.
+Reads factsheet markdown from the FACTSHEETS TABLE (the source of truth since
+migration 41 — decision D3; content/factsheets/*.md is only the git seed),
+chunks by H2 section, embeds each chunk with gemini-embedding-001 (768 dims
+via Matryoshka), and upserts into document_sources + chunks.
 
-Re-running is idempotent: unchanged files (same SHA-256 hash) are skipped;
-changed files have their chunks deleted and re-indexed.
+Re-running is idempotent: unchanged rows (same SHA-256 content_hash) are
+skipped; changed rows have their chunks deleted and re-indexed. A single
+course can be reindexed via index_course() / the 'index_factsheet_job' Arq
+job — the admin Factsheets page enqueues it on every save.
 
 Usage (from project root):
-    python -m apps.worker.jobs.index_factsheets
+    python -m apps.worker.jobs.index_factsheets            # all, skip unchanged
+    python -m apps.worker.jobs.index_factsheets --force    # re-embed everything
 """
 
 from __future__ import annotations
@@ -32,9 +36,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: E402
 
 from core.config import settings  # noqa: E402
 from core.db import AsyncSessionLocal  # noqa: E402
-from core.models.rag import Chunk, DocumentSource  # noqa: E402
+from core.models.rag import Chunk, DocumentSource, Factsheet  # noqa: E402
 
-FACTSHEETS_DIR = Path(__file__).parents[3] / "content" / "factsheets"
+FACTSHEETS_DIR = Path(__file__).parents[3] / "content" / "factsheets"  # git seed only
 RATE_LIMIT_DELAY = 0.7   # seconds between each individual embed call (85/min, under 100 free-tier limit)
 MAX_CHUNK_CHARS = 2000    # ~400-500 tokens per chunk
 
@@ -121,42 +125,49 @@ def _embed_one(client: genai.Client, text: str) -> list[float]:
     return result.embeddings[0].values
 
 
-async def index_file(
+async def index_row(
     session,
     client: genai.Client,
-    path: Path,
+    row: Factsheet,
     force: bool = False,
 ) -> tuple[int, bool]:
-    """Index a single factsheet. Returns (chunks_written, was_skipped)."""
-    raw = path.read_text(encoding="utf-8")
-    content_hash = _sha256(raw)
-    course_number = _extract_course_number(path.name)
-    title = _extract_title(raw, path.name)
+    """Index one factsheets row. Returns (chunks_written, was_skipped)."""
+    raw = row.content
+    content_hash = row.content_hash or _sha256(raw)
+    title = _extract_title(raw, f"{row.course_number}.md")
 
-    # Check if already indexed with same content
+    # Already indexed with identical content? (idempotency)
     existing = await session.scalar(
-        select(DocumentSource).where(DocumentSource.content_hash == content_hash)
+        select(DocumentSource).where(
+            DocumentSource.source_type == "factsheet",
+            DocumentSource.course_number == row.course_number,
+            DocumentSource.content_hash == content_hash,
+        )
     )
     if existing and not force:
         return 0, True  # unchanged — skip
 
-    # Delete stale record if content changed
-    stale = await session.scalar(
-        select(DocumentSource).where(DocumentSource.file_path == str(path))
-    )
-    if stale:
-        await session.execute(
-            delete(Chunk).where(Chunk.source_id == stale.source_id)
+    # Replace any stale index for this course (matches pre-migration rows that
+    # carried a file_path too — course_number is the stable identity).
+    stale_rows = (
+        await session.scalars(
+            select(DocumentSource).where(
+                DocumentSource.source_type == "factsheet",
+                DocumentSource.course_number == row.course_number,
+            )
         )
+    ).all()
+    for stale in stale_rows:
+        await session.execute(delete(Chunk).where(Chunk.source_id == stale.source_id))
         await session.delete(stale)
+    if stale_rows:
         await session.flush()
 
-    # Create new document source record
     source = DocumentSource(
         source_type="factsheet",
-        course_number=course_number,
+        course_number=row.course_number,
         title=title,
-        file_path=str(path),
+        file_path=f"db:factsheets/{row.course_number}",
         content_hash=content_hash,
     )
     session.add(source)
@@ -183,36 +194,54 @@ async def index_file(
     return len(chunks), False
 
 
+async def index_course(
+    session, client: genai.Client, course_number: str, force: bool = False
+) -> tuple[int, bool]:
+    """Reindex a single course's factsheet from the DB (admin save path)."""
+    row = await session.get(Factsheet, course_number)
+    if row is None:
+        raise ValueError(f"No factsheet row for course number {course_number!r}")
+    return await index_row(session, client, row, force=force)
+
+
 async def run(force: bool = False) -> None:
-    factsheets = sorted(FACTSHEETS_DIR.glob("*.md"))
-    if not factsheets:
-        print(f"No factsheets found in {FACTSHEETS_DIR}")
-        return
-
     client = genai.Client(api_key=settings.gemini_api_key)
-    print(f"Indexing {len(factsheets)} factsheets into database…")
-
     total_chunks = 0
     skipped = 0
 
     async with AsyncSessionLocal() as session:
-        for i, path in enumerate(factsheets, 1):
+        rows = (
+            await session.scalars(select(Factsheet).order_by(Factsheet.course_number))
+        ).all()
+        if not rows:
+            print("No factsheets in the DB (run migration 41 / seed first).")
+            return
+        print(f"Indexing {len(rows)} factsheets from the DB…")
+        for i, row in enumerate(rows, 1):
             try:
-                n, was_skipped = await index_file(session, client, path, force=force)
+                n, was_skipped = await index_row(session, client, row, force=force)
                 if was_skipped:
-                    print(f"  [{i:2}/{len(factsheets)}] SKIP  {path.name} (unchanged)")
+                    print(f"  [{i:3}/{len(rows)}] SKIP  {row.course_number} (unchanged)")
                     skipped += 1
                 else:
-                    print(f"  [{i:2}/{len(factsheets)}] OK    {path.name}  ({n} chunks)")
+                    print(f"  [{i:3}/{len(rows)}] OK    {row.course_number}  ({n} chunks)")
                     total_chunks += n
-
                 await session.commit()
-
             except Exception as e:
                 await session.rollback()
-                print(f"  [{i:2}/{len(factsheets)}] ERROR {path.name}: {e}")
+                print(f"  [{i:3}/{len(rows)}] ERROR {row.course_number}: {e}")
 
-    print(f"\nDone. {total_chunks} chunks written, {skipped} files skipped (unchanged).")
+    print(f"\nDone. {total_chunks} chunks written, {skipped} rows skipped (unchanged).")
+
+
+# ── Arq job: reindex one course after an admin edit ──────────────────────────
+
+async def index_factsheet_job(ctx, course_number: str) -> dict:
+    client = genai.Client(api_key=settings.gemini_api_key)
+    async with AsyncSessionLocal() as session:
+        chunks, skipped = await index_course(session, client, course_number)
+        await session.commit()
+    return {"course_number": course_number, "chunks": chunks, "skipped": skipped}
 
 
 if __name__ == "__main__":

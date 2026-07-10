@@ -14,6 +14,7 @@ from apps.api.routers import (
     admin_conversations,
     admin_courses,
     admin_cutoffs,
+    admin_factsheets,
     admin_ingestions,
     admin_requirements,
     admin_users,
@@ -42,6 +43,7 @@ app.include_router(admin_aliases.router)
 app.include_router(admin_conversations.router)
 app.include_router(admin_courses.router)
 app.include_router(admin_cutoffs.router)
+app.include_router(admin_factsheets.router)
 app.include_router(admin_ingestions.router)
 app.include_router(admin_requirements.router)
 app.include_router(admin_users.router)

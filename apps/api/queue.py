@@ -33,3 +33,12 @@ async def enqueue_extract_pdf(
         )
     finally:
         await pool.aclose()
+
+
+async def enqueue_index_factsheet(*, course_number: str) -> None:
+    """Enqueue a single-course factsheet reindex (admin Factsheets save path)."""
+    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    try:
+        await pool.enqueue_job("index_factsheet_job", course_number=course_number)
+    finally:
+        await pool.aclose()
