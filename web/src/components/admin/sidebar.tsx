@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   ListChecks,
   MessagesSquare,
+  ShieldCheck,
   Tags,
   Upload,
 } from "lucide-react";
@@ -23,6 +24,7 @@ const NAV = [
   { href: "/admin/aliases", label: "Aliases", icon: Tags },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/requirements", label: "Subject Rules", icon: ListChecks },
+  { href: "/admin/admins", label: "Admins", icon: ShieldCheck },
 ];
 
 export function Sidebar() {

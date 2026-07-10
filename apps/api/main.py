@@ -15,6 +15,7 @@ from apps.api.routers import (
     admin_cutoffs,
     admin_ingestions,
     admin_requirements,
+    admin_users,
     auth,
     chat,
     eligibility,
@@ -41,6 +42,7 @@ app.include_router(admin_courses.router)
 app.include_router(admin_cutoffs.router)
 app.include_router(admin_ingestions.router)
 app.include_router(admin_requirements.router)
+app.include_router(admin_users.router)
 
 
 @app.get("/health", tags=["meta"])
