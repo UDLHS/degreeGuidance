@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { auth } from "@/auth";
+import { UsageCards } from "@/components/admin/usage-cards";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const CARDS = [
   { href: "/admin/ingestions", title: "Ingestions", desc: "Upload handbooks, review extractions, promote cutoffs." },
   { href: "/admin/cutoffs", title: "Cutoffs", desc: "Browse z-score cutoffs by year as a course × district grid." },
+  { href: "/admin/conversations", title: "Conversations", desc: "Review AI-advisor chats and flag replies that need attention." },
   { href: "/admin/aliases", title: "Aliases", desc: "Verify and correct OCR-label → course mappings." },
   { href: "/admin/courses", title: "Courses", desc: "Edit names, flags, and onboard new courses." },
   { href: "/admin/requirements", title: "Subject Rules", desc: "Review curated §2.2 eligibility rules with source citations." },
@@ -22,6 +24,7 @@ export default async function DashboardPage() {
           {session?.user?.role ? ` (${session.user.role})` : ""}.
         </p>
       </div>
+      <UsageCards />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {CARDS.map((c) => (
           <Link key={c.href} href={c.href}>

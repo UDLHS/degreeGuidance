@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, FileText, Grid3x3, LayoutDashboard, ListChecks, Tags, Upload } from "lucide-react";
+import {
+  BookOpen,
+  FileText,
+  Grid3x3,
+  LayoutDashboard,
+  ListChecks,
+  MessagesSquare,
+  Tags,
+  Upload,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,6 +19,7 @@ const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/ingestions", label: "Ingestions", icon: Upload },
   { href: "/admin/cutoffs", label: "Cutoffs", icon: Grid3x3 },
+  { href: "/admin/conversations", label: "Conversations", icon: MessagesSquare },
   { href: "/admin/aliases", label: "Aliases", icon: Tags },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/requirements", label: "Subject Rules", icon: ListChecks },
