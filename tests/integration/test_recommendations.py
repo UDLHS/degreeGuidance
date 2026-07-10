@@ -30,10 +30,17 @@ async def test_normal_mode_ranks_by_zmargin(client: AsyncClient):
     assert len(b["recommendations"]) >= 1
     scores = [x["total_score"] for x in b["recommendations"]]
     assert scores == sorted(scores, reverse=True)  # ranked high -> low
-    # with no preferences, only z_margin is active and owns the full weight
+    # With no student preferences the mode stays "normal", but per the scoring
+    # design (core/scoring/engine.py) `industry` is ALWAYS active when a course
+    # carries industry tags (pure market-demand signal) — so the breakdown is
+    # z_margin plus optionally industry, never the preference dimensions.
     dims = {d["name"] for d in b["recommendations"][0]["breakdown"]}
-    assert dims == {"z_margin"}
-    assert b["recommendations"][0]["breakdown"][0]["weight"] == 1.0
+    assert "z_margin" in dims
+    assert dims <= {"z_margin", "industry"}
+    assert not dims & {"university", "interest", "career"}
+    # Active weights are renormalized to sum to 1.
+    total_weight = sum(d["weight"] for d in b["recommendations"][0]["breakdown"])
+    assert abs(total_weight - 1.0) < 1e-6
     assert isinstance(b["bucket_counts"], dict)
 
 
@@ -44,8 +51,10 @@ async def test_preference_mode_activates_university(client: AsyncClient):
     assert r.status_code == 200, r.text
     b = r.json()
     assert b["mode"] == "preference"
+    # university must activate; industry may also be active (course-side signal).
     dims = {d["name"] for d in b["recommendations"][0]["breakdown"]}
-    assert dims == {"z_margin", "university"}
+    assert {"z_margin", "university"} <= dims
+    assert dims <= {"z_margin", "university", "industry"}
     cmb = [x for x in b["recommendations"] if x["university_code"] == "CMB"]
     assert cmb, "expected at least one Colombo course eligible"
     uni = {d["name"]: d["raw_score"] for d in cmb[0]["breakdown"]}["university"]

@@ -5,10 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ChatPanel } from "@/components/student/chat-panel";
 import { ResultsView } from "@/components/student/results-view";
 import type {
+  ExamYear,
   ReferenceData,
   RecommendationRequest,
   RecommendationResponse,
   SubjectInput,
+  YearsResponse,
 } from "@/lib/guidance-types";
 
 const ACCENT = "#2b5fd0";
@@ -76,6 +78,11 @@ export function GuidanceFlow() {
   const [preferredUnis, setPreferredUnis] = useState<string[]>([]);
   const [interests, setInterests] = useState("");
 
+  // Exam years with promoted cutoff data (newest first). examYear is what the
+  // student is viewing; null = "use the engine's default (latest)".
+  const [years, setYears] = useState<ExamYear[]>([]);
+  const [examYear, setExamYear] = useState<number | null>(null);
+
   const [results, setResults] = useState<RecommendationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -85,6 +92,12 @@ export function GuidanceFlow() {
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((d: ReferenceData) => setReference(d))
       .catch(() => setRefError(true));
+    // Years are progressive enhancement: if this fails, the flow still works —
+    // requests just omit exam_year and the engine serves its default (latest).
+    fetch("/api/public/years")
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d: YearsResponse) => setYears(d.years))
+      .catch(() => {});
   }, []);
 
   // Restore the last completed run so a returning visitor lands straight on
@@ -101,6 +114,7 @@ export function GuidanceFlow() {
       if (Array.isArray(saved.subjects)) setSubjects(saved.subjects);
       setPreferredUnis(saved.preferredUnis ?? []);
       setInterests(saved.interests ?? "");
+      if (typeof saved.examYear === "number") setExamYear(saved.examYear);
       setResults(saved.results);
       setView("results");
       setActiveTab("results");
@@ -120,15 +134,18 @@ export function GuidanceFlow() {
     );
   }
 
-  async function submit() {
+  async function submit(yearOverride?: number) {
     const filledSubjects = subjects.filter((s): s is SubjectInput => s !== null);
     if (!districtCode || !streamCode || filledSubjects.length !== 3) return;
     setLoading(true);
     setSubmitError(null);
+    const year = yearOverride ?? examYear;
     const payload: RecommendationRequest = {
       z_score: zScore,
       district_code: districtCode,
       stream_code: streamCode,
+      // Omitted when unknown — the engine then serves the latest promoted year.
+      ...(year != null ? { exam_year: year } : {}),
       subjects: filledSubjects,
       preferred_university_codes: preferredUnis,
       interests: interests.trim() || null,
@@ -147,6 +164,7 @@ export function GuidanceFlow() {
       }
       const data: RecommendationResponse = await res.json();
       setResults(data);
+      setExamYear(data.exam_year_used); // server truth wins
       setView("results");
       setActiveTab("results");
       window.scrollTo(0, 0);
@@ -162,6 +180,7 @@ export function GuidanceFlow() {
             subjects,
             preferredUnis,
             interests,
+            examYear: data.exam_year_used,
             results: data,
             savedAt: Date.now(),
           }),
@@ -293,7 +312,12 @@ export function GuidanceFlow() {
             ) : (
               <>
                 {step === 0 && (
-                  <ZScoreStep value={zScore} onChange={setZScore} accent={ACCENT} />
+                  <ZScoreStep
+                    value={zScore}
+                    onChange={setZScore}
+                    accent={ACCENT}
+                    latestYear={years.find((y) => y.is_latest)?.year ?? null}
+                  />
                 )}
                 {step === 1 && (
                   <DistrictStep
@@ -404,6 +428,14 @@ export function GuidanceFlow() {
               zScore={zScore}
               districtName={districtName}
               streamName={streamName}
+              districtCode={districtCode ?? ""}
+              streamCode={streamCode ?? ""}
+              availableYears={years.map((y) => y.year)}
+              yearLoading={loading}
+              onYearChange={(y) => {
+                setExamYear(y);
+                submit(y);
+              }}
               onEdit={edit}
               accent={ACCENT}
             />
@@ -417,6 +449,7 @@ export function GuidanceFlow() {
                 z_score: zScore,
                 district_code: districtCode ?? undefined,
                 stream_code: streamCode ?? undefined,
+                exam_year: results.exam_year_used,
                 subjects: subjects.filter((s): s is SubjectInput => s !== null),
                 interests: interests.trim() || undefined,
                 eligible_courses: results.recommendations.map((r) => ({
@@ -451,10 +484,12 @@ function ZScoreStep({
   value,
   onChange,
   accent,
+  latestYear,
 }: {
   value: number;
   onChange: (v: number) => void;
   accent: string;
+  latestYear: number | null;
 }) {
   const [inputStr, setInputStr] = useState(value.toFixed(4));
   const [inputError, setInputError] = useState<string | null>(null);
@@ -507,8 +542,9 @@ function ZScoreStep({
           )}
         </div>
         <div className="mt-[26px] border-t border-dashed border-[#e3e9f2] pt-[22px] text-center text-[14.5px] leading-[1.5] text-[#7c89a0]">
-          Eligibility is checked against the real, verified 2023 cutoffs for every course in your
-          stream and district.
+          Eligibility is checked against the real, verified
+          {latestYear ? ` ${latestYear}` : " latest"} cutoffs for every course in your stream and
+          district{latestYear ? " — you can switch to earlier years on your results" : ""}.
         </div>
       </div>
     </section>

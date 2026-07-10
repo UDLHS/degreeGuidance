@@ -215,6 +215,7 @@ For short factual questions (e.g. "What is the cutoff for 008B?"), skip the head
         z = context.get("z_score")
         district = context.get("district_code", "").replace("_", " ").title()
         stream = context.get("stream_code", "").replace("_", " ").title()
+        exam_year = context.get("exam_year")
         subjects = context.get("subjects")
         interests = context.get("interests")
         eligible_courses: list[dict] = context.get("eligible_courses") or []
@@ -222,6 +223,12 @@ For short factual questions (e.g. "What is the cutoff for 008B?"), skip the head
         lines = ["\n## This student's profile (from the eligibility form they just filled in)"]
         if z is not None:
             lines.append(f"- Z-score: **{z}**")
+        if exam_year:
+            lines.append(
+                f"- Viewing cutoffs for exam year: **{exam_year}** — their eligible-course "
+                f"list below is computed against {exam_year} cutoffs; when quoting cutoffs, "
+                f"say which year they are from."
+            )
         if district:
             lines.append(f"- District: **{district}**")
         if stream:

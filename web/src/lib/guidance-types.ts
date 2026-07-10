@@ -69,7 +69,20 @@ export type RecommendationRequest = {
   z_score: number;
   district_code: string;
   stream_code: string;
+  /** A/L exam year to evaluate against; omit for the latest promoted year. */
+  exam_year?: number;
   subjects: SubjectInput[];
   preferred_university_codes: string[];
   interests: string | null;
+};
+
+// Mirrors core/schemas/reference.py (YearsResponse / CutoffHistoryResponse).
+export type ExamYear = { year: number; is_latest: boolean };
+export type YearsResponse = { years: ExamYear[] };
+
+export type CutoffHistory = {
+  district_code: string;
+  stream_code: string;
+  years: number[]; // newest first
+  courses: Record<string, Record<string, number>>; // code -> {"2024": 1.2409}
 };

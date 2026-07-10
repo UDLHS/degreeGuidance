@@ -33,3 +33,30 @@ class ReferenceResponse(BaseModel):
     districts: list[DistrictOut]
     streams: list[StreamOut]
     universities: list[UniversityOut]
+
+
+# ── Exam years with promoted cutoff data (Phase 2 plan §1.1) ─────────────────
+
+class ExamYearOut(BaseModel):
+    year: int
+    is_latest: bool
+
+
+class YearsResponse(BaseModel):
+    """Years a student can select. `years` is newest-first; exactly one entry
+    has is_latest=True (the engine's default when no exam_year is sent)."""
+
+    years: list[ExamYearOut]
+
+
+class CutoffHistoryResponse(BaseModel):
+    """Effective cutoff per course per year for one (district, stream) —
+    STREAM-AWARE: a course with a stream-specific override (e.g. 107L) shows
+    the value the requested stream actually competes against, matching the
+    eligibility engine's COALESCE semantics. Year keys are strings (JSON).
+    Powers the results-page trend chips/popovers (Phase 2 plan §1.4)."""
+
+    district_code: str
+    stream_code: str
+    years: list[int]  # newest first
+    courses: dict[str, dict[str, float]]  # course_code -> {"2024": 1.2409, ...}

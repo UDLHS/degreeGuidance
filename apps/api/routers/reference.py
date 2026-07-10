@@ -9,20 +9,106 @@ navigation category — masterplan §3).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.dependencies import get_db
 from core.models.reference import District, Stream, University
 from core.schemas.reference import (
+    CutoffHistoryResponse,
     DistrictOut,
+    ExamYearOut,
     ReferenceResponse,
     StreamOut,
     UniversityOut,
+    YearsResponse,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["reference"])
+
+
+@router.get("/years", response_model=YearsResponse)
+async def get_years(db: AsyncSession = Depends(get_db)) -> YearsResponse:
+    """Exam years that have promoted cutoff data, newest first.
+
+    Sourced from z_score_cutoffs (the promoted store) — a year exists here
+    exactly when the admin promoted that year's handbook, so this list always
+    matches what the eligibility engine can actually serve. The latest year is
+    the engine's default when a request carries no exam_year.
+    """
+    rows = (
+        await db.execute(
+            text("SELECT DISTINCT year FROM z_score_cutoffs ORDER BY year DESC")
+        )
+    ).scalars().all()
+    return YearsResponse(
+        years=[ExamYearOut(year=y, is_latest=(i == 0)) for i, y in enumerate(rows)]
+    )
+
+
+@router.get("/cutoff-history", response_model=CutoffHistoryResponse)
+async def get_cutoff_history(
+    district_code: str,
+    stream_code: str,
+    db: AsyncSession = Depends(get_db),
+) -> CutoffHistoryResponse:
+    """Every course's effective cutoff per promoted year for one district +
+    stream, in a single call (a per-course endpoint would mean 100+ requests
+    from the results page). Stream overrides are COALESCEd exactly like the
+    eligibility engine, so the trend a student sees matches the cutoff they
+    were actually judged against. NQC/absent years are simply missing keys.
+    """
+    district_code = district_code.strip().upper()
+    stream_code = stream_code.strip().upper()
+    did = (
+        await db.execute(
+            text("SELECT district_id FROM districts WHERE code = :c"), {"c": district_code}
+        )
+    ).scalar()
+    sid = (
+        await db.execute(
+            text("SELECT stream_id FROM streams WHERE code = :c"), {"c": stream_code}
+        )
+    ).scalar()
+    if did is None or sid is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown {'district' if did is None else 'stream'} code",
+        )
+
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT zc.course_code, zc.year,
+                       COALESCE(so.z_score, zc.z_score) AS z_score
+                FROM z_score_cutoffs zc
+                LEFT JOIN course_stream_cutoff_overrides so
+                       ON so.course_code = zc.course_code
+                      AND so.district_id = zc.district_id
+                      AND so.year        = zc.year
+                      AND so.stream_id   = :s
+                WHERE zc.district_id = :d
+                  AND COALESCE(so.z_score, zc.z_score) IS NOT NULL
+                """
+            ),
+            {"d": did, "s": sid},
+        )
+    ).all()
+
+    years: set[int] = set()
+    courses: dict[str, dict[str, float]] = {}
+    for code, year, z in rows:
+        years.add(year)
+        courses.setdefault(code, {})[str(year)] = float(z)
+
+    return CutoffHistoryResponse(
+        district_code=district_code,
+        stream_code=stream_code,
+        years=sorted(years, reverse=True),
+        courses=courses,
+    )
 
 
 @router.get("/reference", response_model=ReferenceResponse)

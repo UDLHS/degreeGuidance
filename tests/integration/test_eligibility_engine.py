@@ -83,7 +83,14 @@ async def _reference(
     Applies the same subject-requirement filter as the engine -- subject-rule
     *correctness* is verified by its own dedicated suites; here the point is
     only that both code paths apply it identically, so a real divergence in
-    the stream/Z-score JOIN math still surfaces."""
+    the stream/Z-score JOIN math still surfaces.
+
+    Stream-specific cutoff overrides (course_stream_cutoff_overrides,
+    migration 37 -- e.g. 107L Food Business Management's Commerce vs
+    Bio/Physical split) are part of the INTENDED semantics: the student's own
+    stream picks the override over the general row. The oracle mirrors that
+    rule here in JOIN form (vs the engine's EXISTS + COALESCE-in-SELECT), so
+    the two stay independently-written implementations of the same spec."""
     did = (
         await session.execute(text("SELECT district_id FROM districts WHERE code = :c"), {"c": district})
     ).scalar_one_or_none()
@@ -99,17 +106,22 @@ async def _reference(
                 """
                 SELECT zc.course_code,
                        c.course_number,
-                       zc.z_score,
+                       COALESCE(so.z_score, zc.z_score) AS z_score,
                        c.requires_aptitude_test
                 FROM z_score_cutoffs zc
                 JOIN courses c                      ON c.course_code = zc.course_code
                 JOIN course_stream_eligibility e    ON e.course_code = c.course_code
+                LEFT JOIN course_stream_cutoff_overrides so
+                       ON so.course_code = zc.course_code
+                      AND so.district_id = zc.district_id
+                      AND so.year        = zc.year
+                      AND so.stream_id   = :s
                 WHERE zc.year = :y
                   AND zc.district_id = :d
                   AND e.stream_id = :s
-                  AND zc.z_score IS NOT NULL
+                  AND COALESCE(so.z_score, zc.z_score) IS NOT NULL
                   AND c.is_active = TRUE
-                  AND zc.z_score <= :z
+                  AND COALESCE(so.z_score, zc.z_score) <= :z
                 """
             ),
             {"y": year, "d": did, "s": sid, "z": Decimal(str(z))},

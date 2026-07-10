@@ -24,6 +24,8 @@ interface ChatContext {
   z_score?: number;
   district_code?: string;
   stream_code?: string;
+  /** Exam year whose cutoffs the student is currently viewing (Phase 2 §1.3). */
+  exam_year?: number;
   subjects?: Array<{ subject: string; grade: string }>;
   interests?: string;
   eligible_courses?: EligibleCourse[];
