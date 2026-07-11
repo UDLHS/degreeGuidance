@@ -59,6 +59,7 @@ from apps.api.queue import enqueue_extract_pdf
 from apps.worker.jobs.ingest_zscores import (
     apply_stream_overrides,
     apply_unmapped_cutoffs,
+    cutoff_coverage_gaps,
     ingest_zscores,
 )
 from core.config import settings
@@ -106,6 +107,110 @@ def _work_dir() -> Path:
     d = Path(settings.ingestion_work_dir)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# ── Yearly-loop hardening (Phase 7 of docs/PHASE2_STUDENT_ADMIN_PLAN.md) ─────
+
+def _archive_dir(year: int) -> Path:
+    d = Path(settings.archive_dir) / str(year)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+async def snapshot_year_data(db: AsyncSession, year: int, tag: str) -> list[str]:
+    """Pre-promote safety snapshot: dump the year's CURRENT rows (cutoffs +
+    stream overrides + codeless) to CSVs in the archive before anything is
+    overwritten, so every promote is reversible in one step. No-op for a year
+    with no data yet. Returns the written paths (relative to archive_dir)."""
+    written: list[str] = []
+
+    async def _dump(query: str, header: list[str], name: str) -> None:
+        rows = (await db.execute(text(query), {"y": year})).all()
+        if not rows:
+            return
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(header)
+        w.writerows(rows)
+        path = _archive_dir(year) / f"{name}_{tag}.csv"
+        path.write_text(buf.getvalue(), encoding="utf-8-sig")
+        written.append(str(Path(str(year)) / path.name))
+
+    await _dump(
+        "SELECT z.course_code, d.code, z.z_score, z.notes FROM z_score_cutoffs z "
+        "JOIN districts d ON d.district_id = z.district_id WHERE z.year = :y "
+        "ORDER BY z.course_code, d.code",
+        ["course_code", "district", "z_score", "notes"],
+        "snapshot_cutoffs",
+    )
+    await _dump(
+        "SELECT o.course_code, d.code, s.code, o.z_score, o.notes "
+        "FROM course_stream_cutoff_overrides o "
+        "JOIN districts d ON d.district_id = o.district_id "
+        "JOIN streams s ON s.stream_id = o.stream_id WHERE o.year = :y "
+        "ORDER BY o.course_code, d.code, s.code",
+        ["course_code", "district", "stream", "z_score", "notes"],
+        "snapshot_stream_overrides",
+    )
+    await _dump(
+        "SELECT u.raw_label, u.course_name, u.university, d.code, u.z_score, u.notes "
+        "FROM unmapped_cutoffs u JOIN districts d ON d.district_id = u.district_id "
+        "WHERE u.year = :y ORDER BY u.raw_label, d.code",
+        ["raw_label", "course_name", "university", "district", "z_score", "notes"],
+        "snapshot_unmapped",
+    )
+    return written
+
+
+def archive_run_artifacts(run_id: str, year: int, tag: str) -> list[str]:
+    """Copy the promoted run's artifacts (raw handbook PDF, final CSV,
+    overrides/unmapped JSON) into the permanent per-year archive. Returns the
+    written paths (relative to archive_dir)."""
+    import shutil
+
+    written: list[str] = []
+    mapping = {
+        f"{run_id}.pdf": f"handbook_{year}_{tag}.pdf",
+        f"{run_id}.csv": f"promoted_{tag}.csv",
+        f"{run_id}.overrides.json": f"overrides_{tag}.json",
+        f"{run_id}.unmapped.json": f"unmapped_{tag}.json",
+    }
+    for src_name, dst_name in mapping.items():
+        src = _work_dir() / src_name
+        if src.exists():
+            dst = _archive_dir(year) / dst_name
+            shutil.copyfile(src, dst)
+            written.append(str(Path(str(year)) / dst_name))
+    return written
+
+
+async def build_promote_checklist(db: AsyncSession, year: int) -> dict:
+    """Post-promote review card: everything the admin must eyeball, computed
+    fresh from the DB (year-agnostic — future uploads change numbers, not code)."""
+    gaps = await cutoff_coverage_gaps(db, year)
+    overrides = (
+        await db.execute(
+            text("SELECT count(*) FROM course_stream_cutoff_overrides WHERE year = :y"),
+            {"y": year},
+        )
+    ).scalar() or 0
+    codeless = (
+        await db.execute(
+            text("SELECT count(*) FROM unmapped_cutoffs WHERE year = :y"), {"y": year}
+        )
+    ).scalar() or 0
+    latest = (
+        await db.execute(text("SELECT max(year) FROM z_score_cutoffs"))
+    ).scalar()
+    return {
+        "promoted_year": year,
+        "students_now_see": latest,
+        "is_default_year": latest == year,
+        "coverage_gap_count": len(gaps),
+        "coverage_gaps": list(gaps)[:15],
+        "stream_override_rows": overrides,
+        "codeless_rows": codeless,
+    }
 
 
 async def _step4_on_bytes(content: bytes, exam_year: int, triggered_by: str) -> dict:
@@ -312,6 +417,11 @@ async def promote_ingestion(
         )
     exam_year = run.year
     triggered_by = f"admin:{admin.user_id}:promote:{run_id}"
+    tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    # Pre-promote safety snapshot (Phase 7.2): if this year already has data,
+    # dump it to the archive FIRST so the promote is reversible in one step.
+    snapshot_paths = await snapshot_year_data(db, exam_year, tag)
 
     reviewed_provided = file is not None and bool(file.filename)
     if reviewed_provided:
@@ -354,16 +464,27 @@ async def promote_ingestion(
         # Codeless columns (real z-scores, no Uni-Code) -> unmapped_cutoffs.
         await apply_unmapped_cutoffs(db, str(run_id), exam_year)
 
+    # Permanent per-year archive (Phase 7.3): raw PDF + final CSV + artifacts.
+    archived = snapshot_paths + archive_run_artifacts(str(run_id), exam_year, tag)
+    # Post-promote checklist (Phase 7.4): what the admin must eyeball now.
+    checklist = await build_promote_checklist(db, exam_year)
+    checklist["archived"] = archived
+
     # link the extraction run to the produced zscore run
-    run.notes = f"promoted -> zscore run {summary['run_id']}"
+    run.notes = (
+        f"promoted -> zscore run {summary['run_id']}; "
+        f"students now see {checklist['students_now_see']} by default; "
+        f"{checklist['coverage_gap_count']} coverage gap(s); "
+        f"{len(archived)} file(s) archived"
+    )
     await log_admin_action(
         db, admin=admin, action_type="ingestion.promote",
         target_table="ingestion_runs", target_id=summary["run_id"],
-        before=None, after=summary, request=request,
+        before=None, after={**summary, "checklist": checklist}, request=request,
         notes=f"promoted from extraction run {run_id}; reviewed_upload={reviewed_provided}",
     )
     await db.commit()
-    return IngestionCreateResponse(run_type="zscore", **summary)
+    return IngestionCreateResponse(run_type="zscore", checklist=checklist, **summary)
 
 
 # ── Staged extraction lifecycle (Phase 1 pipeline) ───────────────────────────

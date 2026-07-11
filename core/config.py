@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # Ingestion working directory — uploaded PDFs + extracted CSVs (C2)
     ingestion_work_dir: str = Field(default="data/ingestion_work")
 
+    # Permanent per-year archive: pre-promote snapshots + promoted artifacts
+    # (raw PDF, final CSV, overrides/unmapped) — Phase 7 of the Phase-2 plan;
+    # also the retention layer future year-comparison chat features read.
+    archive_dir: str = Field(default="data/archive")
+
     # Gemini API (RAG + chatbot)
     gemini_api_key: str = Field(default="", description="Google Gemini API key")
     gemini_embedding_model: str = Field(default="models/gemini-embedding-001")

@@ -42,8 +42,10 @@ _FAKE_PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
 
 @pytest.fixture(autouse=True)
 def work_dir(tmp_path, monkeypatch):
-    """Redirect the ingestion work dir to a throwaway tmp dir for each test."""
+    """Redirect the ingestion work dir AND the permanent archive to throwaway
+    tmp dirs for each test (promote snapshots/archives since Phase 7)."""
     monkeypatch.setattr(settings, "ingestion_work_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "archive_dir", str(tmp_path / "archive"))
     return tmp_path
 
 

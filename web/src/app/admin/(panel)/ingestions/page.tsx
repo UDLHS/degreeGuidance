@@ -58,6 +58,9 @@ export default function IngestionsPage() {
   const [year, setYear] = useState("2023");
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Years that already have promoted cutoff data (Phase 7.1 upload guard).
+  const [existingYears, setExistingYears] = useState<number[]>([]);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,11 +77,18 @@ export default function IngestionsPage() {
 
   useEffect(() => {
     load();
+    fetch("/api/bff/admin/cutoffs/years", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d: { year: number }[]) => setExistingYears(d.map((y) => y.year)))
+      .catch(() => {});
   }, [load]);
+
+  const yearHasData = existingYears.includes(Number(year));
 
   async function onUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
+    if (yearHasData && !confirmOverwrite) return;
     setUploading(true);
     setMsg(null);
     const fd = new FormData();
@@ -135,16 +145,40 @@ export default function IngestionsPage() {
                 id="year"
                 type="number"
                 value={year}
-                onChange={(e) => setYear(e.target.value)}
+                onChange={(e) => {
+                  setYear(e.target.value);
+                  setConfirmOverwrite(false);
+                }}
                 min={2010}
                 max={2030}
               />
             </div>
-            <Button type="submit" disabled={!file || uploading}>
+            <Button type="submit" disabled={!file || uploading || (yearHasData && !confirmOverwrite)}>
               <Upload className="mr-1 h-4 w-4" aria-hidden />
               {uploading ? "Uploading…" : "Upload"}
             </Button>
           </form>
+          {existingYears.length ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Years with promoted data: {existingYears.join(", ")}. Double-check the exam year —
+              it is what students will select.
+            </p>
+          ) : null}
+          {yearHasData ? (
+            <label className="mt-2 flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <input
+                type="checkbox"
+                checked={confirmOverwrite}
+                onChange={(e) => setConfirmOverwrite(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <strong>{year} already has promoted cutoff data.</strong> Promoting this run will
+                update it (a pre-promote snapshot is archived automatically). Tick to confirm this
+                is intentional — e.g. it is not a typo for another year.
+              </span>
+            </label>
+          ) : null}
           {msg ? (
             <p className={cn("mt-3 text-sm", msg.ok ? "text-green-700" : "text-destructive")}>{msg.text}</p>
           ) : null}

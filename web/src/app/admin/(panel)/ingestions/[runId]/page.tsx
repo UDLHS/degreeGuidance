@@ -72,6 +72,17 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
   const [pagesSpec, setPagesSpec] = useState("");
   const [reextracting, setReextracting] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Post-promote review card (Phase 7.4) — returned by /promote.
+  const [checklist, setChecklist] = useState<{
+    promoted_year: number;
+    students_now_see: number | null;
+    is_default_year: boolean;
+    coverage_gap_count: number;
+    coverage_gaps: string[];
+    stream_override_rows: number;
+    codeless_rows: number;
+    archived: string[];
+  } | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/bff/admin/ingestions/${runId}`, { cache: "no-store" });
@@ -112,6 +123,7 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
   async function promote() {
     setPromoting(true);
     setMsg(null);
+    setChecklist(null);
     const fd = new FormData();
     if (reviewFile) fd.append("file", reviewFile);
     const res = await fetch(`/api/bff/admin/ingestions/${runId}/promote`, { method: "POST", body: fd });
@@ -122,6 +134,7 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
         ok: true,
         text: `Promoted: ${data.processed} rows committed${data.failed ? `, ${data.failed} failed` : ""}. New run ${String(data.run_id).slice(0, 8)}…`,
       });
+      if (data.checklist) setChecklist(data.checklist);
       setReviewFile(null);
     } else {
       setMsg({ ok: false, text: data?.detail ?? `Promote failed (${res.status}).` });
@@ -254,6 +267,37 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
             {msg ? (
               <p className={cn("text-sm", msg.ok ? "text-green-700" : "text-destructive")}>{msg.text}</p>
             ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {checklist ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Post-promote checklist — {checklist.promoted_year}</CardTitle>
+            <CardDescription>Review these before you consider the yearly update done.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            <p>
+              ✅ Students now see <strong>{checklist.students_now_see}</strong> by default
+              {checklist.is_default_year
+                ? " (this promote)."
+                : ` — this promote (${checklist.promoted_year}) is a previous year, selectable via the year switcher.`}
+            </p>
+            <p className={cn(checklist.coverage_gap_count > 0 && "text-amber-700")}>
+              {checklist.coverage_gap_count > 0 ? "⚠️" : "✅"} {checklist.coverage_gap_count} active
+              course(s) without {checklist.promoted_year} cutoffs
+              {checklist.coverage_gaps.length
+                ? ` — ${checklist.coverage_gaps.join(", ")}${checklist.coverage_gap_count > checklist.coverage_gaps.length ? ", …" : ""}. Verify each is expected (new course / variant code / no intake).`
+                : "."}
+            </p>
+            <p>
+              ✅ {checklist.stream_override_rows} per-stream override cutoff(s) ·{" "}
+              {checklist.codeless_rows} codeless cutoff(s) preserved.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Archived {checklist.archived.length} file(s): {checklist.archived.join(" · ") || "—"}
+            </p>
           </CardContent>
         </Card>
       ) : null}

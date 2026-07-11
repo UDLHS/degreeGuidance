@@ -31,6 +31,10 @@ class IngestionCreateResponse(BaseModel):
     run_type: str
     processed: int | None = None
     failed: int | None = None
+    # Post-promote review card (Phase 7.4) — only set by /promote:
+    # promoted_year, students_now_see, coverage gaps, override/codeless counts,
+    # archived file paths. None on every other path.
+    checklist: dict[str, Any] | None = None
 
 
 class IngestionRunOut(BaseModel):
