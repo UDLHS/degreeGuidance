@@ -268,6 +268,18 @@ async def test_extract_job_real_pdf(db_session: AsyncSession, admin_token: str, 
     assert not (work_dir / f"{rid}.csv").exists()  # CSV comes from mapping/confirm
     assert pdf_copy.exists()  # PDF retained for re-extract + confirm
 
+    # both artifacts must also be in the DB store — in production the confirm
+    # stage runs on a different machine than this worker
+    kinds = {
+        row[0]
+        for row in (
+            await db_session.execute(
+                text("SELECT kind FROM ingestion_artifacts WHERE run_id = :r"), {"r": rid}
+            )
+        ).all()
+    }
+    assert {"grid.json", "presence.json"} <= kinds
+
 
 # ---- CSV download ----
 

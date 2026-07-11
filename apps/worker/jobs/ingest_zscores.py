@@ -34,8 +34,8 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import settings
 from core.db import AsyncSessionLocal
+from core.ingestion.artifact_store import load_artifact
 from core.models import (
     District,
     CourseAlias,
@@ -266,11 +266,11 @@ async def apply_stream_overrides(db: AsyncSession, run_id: str, exam_year: int) 
     z-scores per stream under one Uni-Code. Call AFTER ingest_zscores() has
     written the run's normal CSV, so the base rows already exist to annotate.
     """
-    artifact_path = Path(settings.ingestion_work_dir) / f"{run_id}.overrides.json"
-    if not artifact_path.exists():
+    raw = await load_artifact(db, run_id, "overrides.json")
+    if raw is None:
         return {"rows_written": 0, "courses": 0}
 
-    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload = json.loads(raw)
     columns = payload.get("columns", [])
     if not columns:
         return {"rows_written": 0, "courses": 0}
@@ -337,11 +337,11 @@ async def apply_unmapped_cutoffs(db: AsyncSession, run_id: str, exam_year: int) 
     keyed by the printed label instead of a course code. A no-op when the run
     has no such artifact. Never touches z_score_cutoffs. Call at promote, so
     codeless data goes live alongside the normal cutoffs."""
-    artifact_path = Path(settings.ingestion_work_dir) / f"{run_id}.unmapped.json"
-    if not artifact_path.exists():
+    raw = await load_artifact(db, run_id, "unmapped.json")
+    if raw is None:
         return {"rows_written": 0, "columns": 0}
 
-    payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    payload = json.loads(raw)
     columns = payload.get("columns", [])
     if not columns:
         return {"rows_written": 0, "columns": 0}

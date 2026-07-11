@@ -1,4 +1,4 @@
-"""Apply pending schema migrations (36→41) to the PRODUCTION Supabase DB.
+"""Apply pending schema migrations (36→42) to the PRODUCTION Supabase DB.
 
 W2 of docs/PHASE2_STUDENT_ADMIN_PLAN.md, using the project's established
 standalone-script method (Alembic-direct has SSL friction against Supabase;
@@ -41,6 +41,7 @@ CHAIN: list[tuple[str, str, str]] = [
     # 41: DDL-only file; the 129 markdown seeds go in via parameterized
     # inserts below (the generated literal INSERTs hit a quoting edge).
     ("e75434db887c", "093c47d4fb58", "41_e75434db887c_factsheets_ddl.sql"),
+    ("7fa2c4d81b3e", "e75434db887c", "42_7fa2c4d81b3e_ingestion_artifacts.sql"),
 ]
 
 FACTSHEETS_DIR = Path(__file__).resolve().parent.parent / "content" / "factsheets"
@@ -86,7 +87,7 @@ async def main(dry_run: bool) -> int:
 
         revisions = [rev for rev, _, _ in CHAIN]
         if current == revisions[-1]:
-            print("Already at head (e75434db887c) — nothing to do.")
+            print(f"Already at head ({revisions[-1]}) — nothing to do.")
             return 0
 
         # find where we are in the chain
@@ -96,7 +97,7 @@ async def main(dry_run: bool) -> int:
             start = 0
         else:
             print(
-                f"ERROR: unexpected prod version {current!r} — not in the 35→41 chain. "
+                f"ERROR: unexpected prod version {current!r} — not in the 35→42 chain. "
                 "Investigate before applying anything."
             )
             return 2
@@ -129,6 +130,7 @@ async def main(dry_run: bool) -> int:
             "unmapped_cutoffs",
             "agent_configs",
             "factsheets",
+            "ingestion_artifacts",
         ):
             n = await conn.fetchval(
                 "SELECT count(*) FROM information_schema.tables WHERE table_name = $1", tbl

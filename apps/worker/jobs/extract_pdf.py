@@ -15,8 +15,12 @@ Flow (docs/ADMIN_HANDBOOK_PIPELINE_DESIGN.md):
 
 The cutoff CSV is NOT written here any more: it is produced by the
 mapping-confirm endpoint from admin-confirmed columns, then promoted through
-the untouched Step-4 loader. The uploaded PDF is RETAINED in the work dir —
-re-extraction with a manual page range and the confirm stage both need it.
+the untouched Step-4 loader. The uploaded PDF is RETAINED — re-extraction
+with a manual page range and the confirm stage both need it.
+
+Stage inputs/outputs go through core/ingestion/artifact_store.py: the DB row
+is the durable copy (the API and this worker are separate machines with
+separate disks in production), the work-dir file just a cache.
 
 The heavy pdfplumber work is synchronous and CPU-bound, so it runs in a
 worker thread (asyncio.to_thread) to keep the Arq event loop responsive.
@@ -35,6 +39,7 @@ from sqlalchemy import delete, text
 
 from core.config import settings
 from core.db import AsyncSessionLocal
+from core.ingestion.artifact_store import artifact_path, put_artifact
 from core.ingestion.book_search import build_book_text, present_courses
 from core.ingestion.column_mapper import suggest_mappings
 from core.ingestion.grid_extractor import (
@@ -82,8 +87,7 @@ async def extract_pdf_job(
     exam_year: int,
     cutoff_pages: str | None = None,
 ) -> dict:
-    work_dir = Path(settings.ingestion_work_dir)
-    work_dir.mkdir(parents=True, exist_ok=True)
+    Path(settings.ingestion_work_dir).mkdir(parents=True, exist_ok=True)
 
     final_status = "failed"
     async with AsyncSessionLocal() as db:
@@ -93,11 +97,24 @@ async def extract_pdf_job(
             return {"run_id": run_id, "status": "failed", "error": "run not found"}
 
         try:
+            # The upload may have landed on a different instance (split
+            # API/worker services in production) — rematerialize the PDF from
+            # the artifact store when the local work-dir copy is absent.
+            pdf_file = Path(pdf_path)
+            if not pdf_file.exists():
+                resolved = await artifact_path(db, run_id, "pdf")
+                if resolved is None:
+                    raise FileNotFoundError(
+                        "uploaded PDF not found on this instance or in the "
+                        "artifact store — upload the handbook again"
+                    )
+                pdf_file = resolved
+
             pages = parse_pages_spec(cutoff_pages) if cutoff_pages else None
             (
                 extraction, logical, conflict_warnings,
                 book_text, book_rows, book_warnings,
-            ) = await asyncio.to_thread(_extract_and_index, pdf_path, pages)
+            ) = await asyncio.to_thread(_extract_and_index, str(pdf_file), pages)
 
             if not logical:
                 run.status = final_status = "needs_pages"
@@ -118,8 +135,9 @@ async def extract_pdf_job(
                     )
                 ).all()
                 present = present_courses(book_text, [(c, n) for c, n in courses])
-                (work_dir / f"{run_id}.presence.json").write_text(
-                    json.dumps(sorted(present)), encoding="utf-8"
+                await put_artifact(
+                    db, run_id, "presence.json",
+                    json.dumps(sorted(present)).encode("utf-8"),
                 )
 
                 # deterministic mapping suggestions -> extraction_columns rows
@@ -175,8 +193,8 @@ async def extract_pdf_job(
                         for c in logical
                     ],
                 }
-                (work_dir / f"{run_id}.grid.json").write_text(
-                    json.dumps(artifact), encoding="utf-8"
+                await put_artifact(
+                    db, run_id, "grid.json", json.dumps(artifact).encode("utf-8")
                 )
 
                 cells = sum(

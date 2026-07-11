@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -287,5 +288,40 @@ class HandbookChange(Base):
     resolved_by: Mapped[str | None] = mapped_column(String(100))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class IngestionArtifact(Base):
+    """A run's pipeline file, stored in the DB so every instance can read it.
+
+    In production the API and the Arq worker are separate machines with
+    separate ephemeral disks, and even a single instance loses its disk on
+    every deploy — so the work-dir file a stage writes may not exist where
+    the next stage runs. Rows here are the durable copy; the local work dir
+    is only a cache (core/ingestion/artifact_store.py).
+
+    kind mirrors the historical work-dir suffix ({run_id}.<kind>): 'pdf',
+    'grid.json', 'presence.json', 'csv', 'overrides.json', 'unmapped.json',
+    plus 'snapshot_*.csv' pre-promote safety dumps. Doubles as the permanent
+    per-year retention of the raw handbook and the promoted CSV (the archive
+    dir is ephemeral in production).
+    """
+
+    __tablename__ = "ingestion_artifacts"
+    __table_args__ = (
+        UniqueConstraint("run_id", "kind", name="uq_artifact_run_kind"),
+        Index("idx_artifacts_run", "run_id"),
+    )
+
+    artifact_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("ingestion_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

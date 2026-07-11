@@ -39,17 +39,17 @@ expected version; the version row is UPDATEd, never INSERTed.
       `JWT_SECRET_KEY` (same as API), `INGESTION_WORK_DIR=/tmp/ingestion_work`,
       `ARCHIVE_DIR=/tmp/archive` *(see the disk note below)*.
 
-### ⚠️ Disk note (decide once)
+### ✅ Disk note (RESOLVED — migration 42, 2026-07-11)
 Render instances have **ephemeral disks**, and the API and worker are
-**separate machines** — a PDF saved by the API is not visible to the worker.
-Options:
-- **Simplest (recommended to start):** add a **Render Persistent Disk** to the
-  API service *and* run the worker as a process inside the same service is NOT
-  possible on Render free tiers — so instead attach the disk to the worker and
-  have the admin upload go through… (not clean), **or**
-- **Cleanest long-term:** swap the work-dir file handoff for Supabase Storage
-  (upload PDF → bucket; worker downloads). This is a small code change Claude
-  can make when we do this session — flag it now so we decide together.
+**separate machines** — a file saved by one is not visible to the other.
+Resolved with the **DB artifact store** (`ingestion_artifacts` table +
+`core/ingestion/artifact_store.py`): every pipeline file (pdf, grid.json,
+presence.json, csv, overrides.json, unmapped.json, pre-promote snapshots)
+is written through to Postgres and rematerialized from it on whatever
+instance needs it next. No bucket, no persistent disk, no extra service —
+and it doubles as the permanent per-year retention of the raw handbook and
+promoted CSV. Verified by tests that wipe the local work dir between every
+pipeline stage (tests/integration/test_ingestion_artifacts.py).
 
 ## 4. API service env additions  *(you)*
 - [ ] `REDIS_URL` (Upstash) — the API enqueues jobs.

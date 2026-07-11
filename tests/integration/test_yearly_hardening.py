@@ -111,13 +111,13 @@ async def test_snapshot_noop_for_empty_year(db_session: AsyncSession):
     )
 
 
-async def test_archive_run_artifacts_copies_what_exists(_tmp_dirs):
+async def test_archive_run_artifacts_copies_what_exists(_tmp_dirs, db_session: AsyncSession):
     run_id = str(uuid.uuid4())
     work = Path(settings.ingestion_work_dir)
     (work / f"{run_id}.pdf").write_bytes(b"%PDF-fake")
     (work / f"{run_id}.csv").write_text("a,b", encoding="utf-8")
-    # no overrides/unmapped files -> only two archived
-    written = archive_run_artifacts(run_id, 2034, "t3")
+    # no overrides/unmapped anywhere (disk or DB) -> only two archived
+    written = await archive_run_artifacts(db_session, run_id, 2034, "t3")
     names = {Path(p).name for p in written}
     assert names == {"handbook_2034_t3.pdf", "promoted_t3.csv"}
     assert (Path(settings.archive_dir) / "2034" / "handbook_2034_t3.pdf").read_bytes() == b"%PDF-fake"

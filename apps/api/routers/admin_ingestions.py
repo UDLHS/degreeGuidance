@@ -63,6 +63,14 @@ from apps.worker.jobs.ingest_zscores import (
     ingest_zscores,
 )
 from core.config import settings
+from core.ingestion.artifact_store import (
+    artifact_exists,
+    artifact_path,
+    delete_artifact,
+    load_artifact,
+    local_artifact_path,
+    put_artifact,
+)
 from core.ingestion.grid_extractor import DISTRICTS_ORDER, parse_pages_spec
 from core.ingestion.handbook_diff import compute_handbook_diff, record_changes
 from core.ingestion.stream_tags import resolve_group_streams, suggest_stream_codes
@@ -103,12 +111,6 @@ _MAX_CSV_BYTES = 5 * 1024 * 1024
 _MAX_PDF_BYTES = 30 * 1024 * 1024
 
 
-def _work_dir() -> Path:
-    d = Path(settings.ingestion_work_dir)
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
 # ── Yearly-loop hardening (Phase 7 of docs/PHASE2_STUDENT_ADMIN_PLAN.md) ─────
 
 def _archive_dir(year: int) -> Path:
@@ -117,11 +119,16 @@ def _archive_dir(year: int) -> Path:
     return d
 
 
-async def snapshot_year_data(db: AsyncSession, year: int, tag: str) -> list[str]:
+async def snapshot_year_data(
+    db: AsyncSession, year: int, tag: str, run_id: str | None = None
+) -> list[str]:
     """Pre-promote safety snapshot: dump the year's CURRENT rows (cutoffs +
     stream overrides + codeless) to CSVs in the archive before anything is
     overwritten, so every promote is reversible in one step. No-op for a year
-    with no data yet. Returns the written paths (relative to archive_dir)."""
+    with no data yet. When run_id is given (the promote path), each dump is
+    also stored as a run artifact — the archive dir is ephemeral in
+    production, the DB copy is the one that makes the undo real. Returns the
+    written paths (relative to archive_dir)."""
     written: list[str] = []
 
     async def _dump(query: str, header: list[str], name: str) -> None:
@@ -134,6 +141,10 @@ async def snapshot_year_data(db: AsyncSession, year: int, tag: str) -> list[str]
         w.writerows(rows)
         path = _archive_dir(year) / f"{name}_{tag}.csv"
         path.write_text(buf.getvalue(), encoding="utf-8-sig")
+        if run_id is not None:
+            # kind is tag-less: each re-promote overwrites, keeping exactly
+            # the state before the LATEST promote — the one-step undo source.
+            await put_artifact(db, run_id, f"{name}.csv", buf.getvalue().encode("utf-8-sig"))
         written.append(str(Path(str(year)) / path.name))
 
     await _dump(
@@ -162,22 +173,26 @@ async def snapshot_year_data(db: AsyncSession, year: int, tag: str) -> list[str]
     return written
 
 
-def archive_run_artifacts(run_id: str, year: int, tag: str) -> list[str]:
+async def archive_run_artifacts(
+    db: AsyncSession, run_id: str, year: int, tag: str
+) -> list[str]:
     """Copy the promoted run's artifacts (raw handbook PDF, final CSV,
-    overrides/unmapped JSON) into the permanent per-year archive. Returns the
-    written paths (relative to archive_dir)."""
+    overrides/unmapped JSON) into the per-year archive dir. Sources come
+    through the artifact store, so they rematerialize from the DB even when
+    this instance never held the files (split API/worker in production).
+    Returns the written paths (relative to archive_dir)."""
     import shutil
 
     written: list[str] = []
     mapping = {
-        f"{run_id}.pdf": f"handbook_{year}_{tag}.pdf",
-        f"{run_id}.csv": f"promoted_{tag}.csv",
-        f"{run_id}.overrides.json": f"overrides_{tag}.json",
-        f"{run_id}.unmapped.json": f"unmapped_{tag}.json",
+        "pdf": f"handbook_{year}_{tag}.pdf",
+        "csv": f"promoted_{tag}.csv",
+        "overrides.json": f"overrides_{tag}.json",
+        "unmapped.json": f"unmapped_{tag}.json",
     }
-    for src_name, dst_name in mapping.items():
-        src = _work_dir() / src_name
-        if src.exists():
+    for kind, dst_name in mapping.items():
+        src = await artifact_path(db, run_id, kind)
+        if src is not None:
             dst = _archive_dir(year) / dst_name
             shutil.copyfile(src, dst)
             written.append(str(Path(str(year)) / dst_name))
@@ -295,7 +310,9 @@ async def create_ingestion(
     db.add(run)
     await db.flush()  # populate run.run_id
     run_id = str(run.run_id)
-    (_work_dir() / f"{run_id}.pdf").write_bytes(content)
+    # DB is the durable copy (the worker is a separate machine in production);
+    # the work-dir file is the local cache. Committed together with the run.
+    await put_artifact(db, run_id, "pdf", content)
 
     await log_admin_action(
         db, admin=admin, action_type="ingestion.pdf_upload",
@@ -303,10 +320,10 @@ async def create_ingestion(
         after={"run_id": run_id, "exam_year": exam_year, "file": filename},
         request=request,
     )
-    await db.commit()  # commit BEFORE enqueue so the worker can see the run
+    await db.commit()  # commit BEFORE enqueue so the worker can see run + PDF
 
     await enqueue_extract_pdf(
-        run_id=run_id, pdf_path=str(_work_dir() / f"{run_id}.pdf"), exam_year=exam_year
+        run_id=run_id, pdf_path=str(local_artifact_path(run_id, "pdf")), exam_year=exam_year
     )
     response.status_code = status.HTTP_202_ACCEPTED
     return IngestionCreateResponse(run_id=run_id, status="running", run_type="pdf_extraction")
@@ -377,8 +394,8 @@ async def download_ingestion_csv(
     run = await db.get(IngestionRun, run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
-    csv_path = _work_dir() / f"{run_id}.csv"
-    if not csv_path.exists():
+    csv_path = await artifact_path(db, str(run_id), "csv")
+    if csv_path is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Extracted CSV not available for this run.",
@@ -421,7 +438,7 @@ async def promote_ingestion(
 
     # Pre-promote safety snapshot (Phase 7.2): if this year already has data,
     # dump it to the archive FIRST so the promote is reversible in one step.
-    snapshot_paths = await snapshot_year_data(db, exam_year, tag)
+    snapshot_paths = await snapshot_year_data(db, exam_year, tag, run_id=str(run_id))
 
     reviewed_provided = file is not None and bool(file.filename)
     if reviewed_provided:
@@ -443,8 +460,8 @@ async def promote_ingestion(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
     else:
-        csv_path = _work_dir() / f"{run_id}.csv"
-        if not csv_path.exists():
+        csv_path = await artifact_path(db, str(run_id), "csv")
+        if csv_path is None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="No extracted CSV available to promote; re-upload a reviewed CSV.",
@@ -465,7 +482,7 @@ async def promote_ingestion(
         await apply_unmapped_cutoffs(db, str(run_id), exam_year)
 
     # Permanent per-year archive (Phase 7.3): raw PDF + final CSV + artifacts.
-    archived = snapshot_paths + archive_run_artifacts(str(run_id), exam_year, tag)
+    archived = snapshot_paths + await archive_run_artifacts(db, str(run_id), exam_year, tag)
     # Post-promote checklist (Phase 7.4): what the admin must eyeball now.
     checklist = await build_promote_checklist(db, exam_year)
     checklist["archived"] = archived
@@ -517,8 +534,7 @@ async def reextract_with_pages(
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
-    pdf_path = _work_dir() / f"{run_id}.pdf"
-    if not pdf_path.exists():
+    if not await artifact_exists(db, str(run_id), "pdf"):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail="Uploaded PDF no longer available; upload the handbook again")
 
@@ -534,8 +550,8 @@ async def reextract_with_pages(
     )
     await db.commit()
     await enqueue_extract_pdf(
-        run_id=str(run_id), pdf_path=str(pdf_path), exam_year=run.year,
-        cutoff_pages=payload.cutoff_pages,
+        run_id=str(run_id), pdf_path=str(local_artifact_path(str(run_id), "pdf")),
+        exam_year=run.year, cutoff_pages=payload.cutoff_pages,
     )
     return IngestionCreateResponse(run_id=str(run_id), status="running", run_type="pdf_extraction")
 
@@ -602,13 +618,13 @@ def _is_numeric_cell(v) -> bool:
         return False
 
 
-def _columns_with_data(run_id: uuid.UUID) -> set[str] | None:
+async def _columns_with_data(db: AsyncSession, run_id: uuid.UUID) -> set[str] | None:
     """column_keys whose grid values include >=1 real z-score, from the
-    {run_id}.grid.json artifact. None if the artifact is missing (unknown)."""
-    grid_path = _work_dir() / f"{run_id}.grid.json"
-    if not grid_path.exists():
+    grid.json artifact. None if the artifact is missing (unknown)."""
+    raw = await load_artifact(db, str(run_id), "grid.json")
+    if raw is None:
         return None
-    artifact = json.loads(grid_path.read_text(encoding="utf-8"))
+    artifact = json.loads(raw)
     keys: set[str] = set()
     for gc in artifact.get("columns", []):
         if any(_is_numeric_cell(v) for v in (gc.get("values") or {}).values()):
@@ -659,7 +675,7 @@ async def list_columns(
         counts[c.status] = counts.get(c.status, 0) + 1
 
     group_streams = _group_stream_suggestions(cols)
-    with_data = _columns_with_data(run_id)
+    with_data = await _columns_with_data(db, run_id)
 
     items = []
     for c in cols:
@@ -732,7 +748,7 @@ async def update_column(
             # keep-without-code is only for a column that actually HAS z-scores
             # to preserve (else it's just an empty column -> ignore). This is
             # the "z-score table has it but the Uni-Code table doesn't" case.
-            with_data = _columns_with_data(run_id)
+            with_data = await _columns_with_data(db, run_id)
             if with_data is not None and col.column_key not in with_data:
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -862,11 +878,11 @@ async def confirm_mapping(
                    f"'ignored', or mark them as distinct stream variants (override_streams). {detail}",
         )
 
-    grid_path = _work_dir() / f"{run_id}.grid.json"
-    if not grid_path.exists():
+    grid_raw = await load_artifact(db, str(run_id), "grid.json")
+    if grid_raw is None:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail="Grid artifact missing; re-extract the PDF first")
-    artifact = json.loads(grid_path.read_text(encoding="utf-8"))
+    artifact = json.loads(grid_raw)
     values_by_key: dict[str, dict[str, str | None]] = {
         c["column_key"]: c["values"] for c in artifact["columns"]
     }
@@ -919,9 +935,8 @@ async def confirm_mapping(
             rep = representative[code]
             row.append(values_by_key[rep.column_key].get(district) or "" if rep else "")
         writer.writerow(row)
-    (_work_dir() / f"{run_id}.csv").write_text(buf.getvalue(), encoding="utf-8-sig")
+    await put_artifact(db, str(run_id), "csv", buf.getvalue().encode("utf-8-sig"))
 
-    overrides_path = _work_dir() / f"{run_id}.overrides.json"
     if override_columns:
         overrides_payload = {
             "columns": [
@@ -935,13 +950,16 @@ async def confirm_mapping(
                 for c in override_columns
             ]
         }
-        overrides_path.write_text(json.dumps(overrides_payload), encoding="utf-8")
+        await put_artifact(
+            db, str(run_id), "overrides.json",
+            json.dumps(overrides_payload).encode("utf-8"),
+        )
     else:
-        overrides_path.unlink(missing_ok=True)  # clear a stale artifact from a prior attempt
+        # clear a stale artifact from a prior confirm attempt
+        await delete_artifact(db, str(run_id), "overrides.json")
 
     # codeless columns: real z-scores, no Uni-Code -> preserved verbatim into
     # unmapped_cutoffs at promote (apply_unmapped_cutoffs), never into the CSV.
-    unmapped_path = _work_dir() / f"{run_id}.unmapped.json"
     if kept_unmapped:
         unmapped_payload = {
             "columns": [
@@ -955,9 +973,12 @@ async def confirm_mapping(
                 for c in kept_unmapped
             ]
         }
-        unmapped_path.write_text(json.dumps(unmapped_payload), encoding="utf-8")
+        await put_artifact(
+            db, str(run_id), "unmapped.json",
+            json.dumps(unmapped_payload).encode("utf-8"),
+        )
     else:
-        unmapped_path.unlink(missing_ok=True)
+        await delete_artifact(db, str(run_id), "unmapped.json")
 
     # diff with the whole-book safeguard (uses the same representative choice
     # as the CSV -- a split-only code compares blank->blank, no false delta,
@@ -969,11 +990,8 @@ async def confirm_mapping(
             {d: v for d, v in values_by_key[rep.column_key].items() if v is not None}
             if rep else {}
         )
-    presence_path = _work_dir() / f"{run_id}.presence.json"
-    present = (
-        set(json.loads(presence_path.read_text(encoding="utf-8")))
-        if presence_path.exists() else None
-    )
+    presence_raw = await load_artifact(db, str(run_id), "presence.json")
+    present = set(json.loads(presence_raw)) if presence_raw is not None else None
     await db.execute(delete(HandbookChange).where(HandbookChange.run_id == run_id))
     changes = await compute_handbook_diff(db, extracted, run.year, present_in_book=present)
     await record_changes(db, run_id, changes)

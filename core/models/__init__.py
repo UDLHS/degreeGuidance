@@ -14,6 +14,7 @@ from core.models.course_eligibility import CourseStreamEligibility, CourseAlias
 from core.models.cutoffs import (
     ZScoreCutoff,
     IngestionRun,
+    IngestionArtifact,
     ParseError,
     HandbookChange,
     ExtractionColumn,
@@ -31,8 +32,8 @@ __all__ = [
     "Stream", "StreamSubject", "Subject", "University",
     "Course",
     "CourseStreamEligibility", "CourseAlias",
-    "ZScoreCutoff", "IngestionRun", "ParseError", "HandbookChange", "ExtractionColumn",
-    "CourseStreamCutoffOverride", "UnmappedCutoff",
+    "ZScoreCutoff", "IngestionRun", "IngestionArtifact", "ParseError", "HandbookChange",
+    "ExtractionColumn", "CourseStreamCutoffOverride", "UnmappedCutoff",
     "CourseMedium", "EligibilityAudit",
     "User", "AdminAction", "AuthEvent",
     "ScoringConfig",
