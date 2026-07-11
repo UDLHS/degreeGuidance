@@ -71,7 +71,13 @@ def _pages_to_spec(pages: list[int]) -> str:
 
 def _extract_and_index(pdf_path: str, pages: list[int] | None):
     """Synchronous CPU-bound stage: grid + consolidation + whole-book text +
-    the book's own Uni-Code section (the authoritative name -> code table)."""
+    the book's own Uni-Code section (the authoritative name -> code table).
+
+    Each whole-book PDF sweep here (grid page-detect, book text, Uni-Code
+    detect) iterates in chunks that close and reopen the handle, so
+    pdfminer's per-page memory accumulation is released instead of stacking
+    into an OOM on a memory-constrained worker. See core/ingestion/pdf_pages.
+    """
     extraction = extract_grid(pdf_path, pages)
     logical, conflict_warnings = consolidate(extraction)
     book_text = build_book_text(pdf_path) if logical else ""

@@ -32,6 +32,7 @@ from statistics import median
 
 import pdfplumber
 
+from core.ingestion.pdf_pages import count_pages, iter_pages_chunked
 from scripts.native_pdf_extractor.extract_cutoffs import (
     DISTRICTS_ORDER,
     DISTRICTS_SORTED_BY_LEN,
@@ -423,16 +424,23 @@ def extract_grid(pdf_path: str, pages: list[int] | None = None) -> GridExtractio
     top_warnings: list[str] = []
     pages_processed: list[int] = []
 
-    with pdfplumber.open(pdf_path) as pdf:
-        total = len(pdf.pages)
-        if pages is None:
-            page_nums = [pn + 1 for pn in range(total) if is_cutoff_page(pdf.pages[pn])]
-        else:
-            page_nums = [p for p in pages if 1 <= p <= total]
-            skipped = sorted(set(pages) - set(page_nums))
-            if skipped:
-                top_warnings.append(f"pages out of range skipped: {skipped}")
+    total = count_pages(pdf_path)
+    if pages is None:
+        # is_cutoff_page reads page.chars — pdfplumber's heaviest property —
+        # on every page just to find the ~10 real cutoff pages. Iterated in
+        # chunks (iter_pages_chunked) so pdfminer's per-page accumulation is
+        # released across the book instead of stacking into an OOM on a
+        # memory-constrained host. The keeper pages are reread fresh below.
+        page_nums = [pn for pn, page in iter_pages_chunked(pdf_path) if is_cutoff_page(page)]
+    else:
+        page_nums = [p for p in pages if 1 <= p <= total]
+        skipped = sorted(set(pages) - set(page_nums))
+        if skipped:
+            top_warnings.append(f"pages out of range skipped: {skipped}")
 
+    # The keeper set is ~10 pages — a single open handle is fine (the leak
+    # only bites on whole-book sweeps, which the detection above chunked).
+    with pdfplumber.open(pdf_path) as pdf:
         for pn in page_nums:
             page = pdf.pages[pn - 1]
             rows = _district_rows(page)

@@ -32,6 +32,7 @@ from dataclasses import dataclass
 import pdfplumber
 
 from core.ingestion.column_mapper import normalize_label
+from core.ingestion.pdf_pages import iter_pages_chunked
 
 _HEADER_RE = re.compile(r"COURSE OF STUDY\s+UNIVERSITY\s+UNI\s*-\s*CODE", re.I)
 _CODE_RE = re.compile(r"^\d{3}[A-Z]$")
@@ -49,12 +50,16 @@ class BookCodeRow:
     page_number: int
 
 
-def _find_section_pages(pdf) -> list[int]:
-    pages = []
-    for i, page in enumerate(pdf.pages):
-        if _HEADER_RE.search(page.extract_text() or ""):
-            pages.append(i + 1)
-    return pages
+def _find_section_pages(pdf_path: str) -> list[int]:
+    # A full-document sweep just to find the ~7 section pages — iterated in
+    # chunks (iter_pages_chunked) so pdfminer's per-page memory accumulation
+    # is released across the book instead of stacking. The keeper pages are
+    # reread fresh by the detail pass below.
+    return [
+        pn
+        for pn, page in iter_pages_chunked(pdf_path)
+        if _HEADER_RE.search(page.extract_text() or "")
+    ]
 
 
 def _clean(text: str) -> str:
@@ -169,10 +174,12 @@ def parse_unicode_section(
     """Parse the section. `pages` overrides auto-detection (1-based)."""
     rows: list[BookCodeRow] = []
     warnings: list[str] = []
+    page_nums = pages or _find_section_pages(pdf_path)
+    if not page_nums:
+        return [], ["Uni-Codes section not found in this book"]
+    # The keeper set is ~7 pages — a single open handle is fine (the leak only
+    # bites on whole-book sweeps, which the detection above already chunked).
     with pdfplumber.open(pdf_path) as pdf:
-        page_nums = pages or _find_section_pages(pdf)
-        if not page_nums:
-            return [], ["Uni-Codes section not found in this book"]
         for pn in page_nums:
             if not (1 <= pn <= len(pdf.pages)):
                 warnings.append(f"p{pn}: out of range — skipped")

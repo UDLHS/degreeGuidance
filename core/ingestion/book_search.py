@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import re
 
-import pdfplumber
-
 from core.ingestion.column_mapper import normalize_label
+from core.ingestion.pdf_pages import iter_pages_chunked
 
 
 def build_book_text(pdf_path: str) -> str:
@@ -27,13 +26,16 @@ def build_book_text(pdf_path: str) -> str:
 
     Rotated/mirrored pages (the cutoff tables and 2025-style labels) extract
     back-to-front, so both directions are indexed.
+
+    Iterated in chunks (iter_pages_chunked) so pdfminer's per-page memory
+    accumulation is released across the ~200-page book instead of stacking
+    into an OOM on a memory-constrained worker — see core/ingestion/pdf_pages.
     """
     parts: list[str] = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text() or ""
-            parts.append(t)
-            parts.append(t[::-1])
+    for _pn, page in iter_pages_chunked(pdf_path):
+        t = page.extract_text() or ""
+        parts.append(t)
+        parts.append(t[::-1])
     return normalize_label(" ".join(" ".join(parts).split()))
 
 
