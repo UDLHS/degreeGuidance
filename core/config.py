@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # also the retention layer future year-comparison chat features read.
     archive_dir: str = Field(default="data/archive")
 
+    # Browser origins allowed to call the API directly (comma-separated).
+    # Only the handbook upload goes browser->API: Vercel caps proxied request
+    # bodies at 4.5 MB, and handbooks are 6-15 MB, so the file bypasses the
+    # BFF using a short-lived ticket. Everything else stays same-origin.
+    # Prod sets CORS_ALLOW_ORIGINS to the deployed web app's origin.
+    cors_allow_origins: str = Field(default="http://localhost:3000")
+
     # W1 abuse/cost guards. Chat is the expensive path (Gemini + web search per
     # message); the general public tier is cheap DB reads. The daily budget
     # bounds total Gemini spend across chat + interest embeddings + the admin

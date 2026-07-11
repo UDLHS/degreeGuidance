@@ -199,6 +199,52 @@ async def test_pdf_upload_enqueues_job(
     assert audited == 1
 
 
+async def test_upload_ticket_flow(
+    client: AsyncClient, admin_token: str, enqueue_spy: list, work_dir: Path,
+):
+    """Handbooks bypass the Vercel BFF (4.5 MB proxy body cap vs 6-15 MB
+    books): the BFF mints a short-lived ticket, the browser uploads straight
+    to the API with it. The ticket must be a 10-minute token that the upload
+    endpoint accepts like any admin credential."""
+    r = await client.post("/api/admin/ingestions/upload-ticket", headers=_auth(admin_token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["expires_in_minutes"] == 10
+
+    from core.security import decode_access_token
+
+    claims = decode_access_token(body["token"])
+    assert claims["exp"] - claims["iat"] == 600  # short-lived, not the 12h session
+
+    r = await client.post(
+        "/api/admin/ingestions", headers=_auth(body["token"]), **_pdf_upload()
+    )
+    assert r.status_code == 202, r.text
+    assert len(enqueue_spy) == 1
+
+
+async def test_upload_ticket_denied_without_admin(client: AsyncClient, student_token: str):
+    assert (await client.post("/api/admin/ingestions/upload-ticket")).status_code == 401
+    r = await client.post("/api/admin/ingestions/upload-ticket", headers=_auth(student_token))
+    assert r.status_code == 403
+
+
+async def test_cors_preflight_allows_direct_upload(client: AsyncClient):
+    """The browser preflights the cross-origin upload; the configured web
+    origin must be allowed (prod sets CORS_ALLOW_ORIGINS to the Vercel URL)."""
+    origin = settings.cors_allow_origins.split(",")[0].strip()
+    r = await client.options(
+        "/api/admin/ingestions",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers.get("access-control-allow-origin") == origin
+
+
 async def test_pdf_upload_rejects_bad_magic(client: AsyncClient, admin_token: str, enqueue_spy: list):
     r = await client.post(
         "/api/admin/ingestions",

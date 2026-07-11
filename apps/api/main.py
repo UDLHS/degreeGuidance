@@ -7,6 +7,9 @@ check. Run with: uvicorn apps.api.main:app --reload
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from core.config import settings
 
 from apps.api.routers import (
     admin_agent,
@@ -37,6 +40,17 @@ app = FastAPI(
 from apps.api.guards import public_rate_limit_middleware  # noqa: E402
 
 app.middleware("http")(public_rate_limit_middleware)
+
+# CORS: the handbook upload is the one browser->API direct call (Vercel caps
+# proxied bodies at 4.5 MB; handbooks are 6-15 MB). Bearer-token auth, no
+# cookies — so no credentialed CORS. Added after the rate-limit middleware so
+# preflights are answered before any other handling.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.cors_allow_origins.split(",") if o.strip()],
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 app.include_router(chat.router)
 app.include_router(student.router)

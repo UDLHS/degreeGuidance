@@ -242,6 +242,25 @@ async def _step4_on_bytes(content: bytes, exam_year: int, triggered_by: str) -> 
             pass
 
 
+@router.post("/ingestions/upload-ticket", summary="Mint a short-lived token for a direct browser upload")
+async def create_upload_ticket(admin: User = Depends(get_current_admin)) -> dict:
+    """The admin UI uploads handbooks straight to this API: Vercel caps
+    proxied request bodies at 4.5 MB and handbooks run 6-15 MB, so the file
+    cannot go through the BFF. The BFF (which alone holds the admin's
+    long-lived token) calls this to mint a 10-minute token that the browser
+    holds in memory just long enough to POST the file. Nothing long-lived
+    ever reaches the browser."""
+    from core.security import create_access_token
+
+    minutes = 10
+    return {
+        "token": create_access_token(
+            subject=str(admin.user_id), role=admin.role, expires_minutes=minutes
+        ),
+        "expires_in_minutes": minutes,
+    }
+
+
 @router.post(
     "/ingestions",
     response_model=IngestionCreateResponse,

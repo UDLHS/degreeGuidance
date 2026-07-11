@@ -94,7 +94,33 @@ export default function IngestionsPage() {
     const fd = new FormData();
     fd.append("file", file);
     fd.append("exam_year", year);
-    const res = await fetch("/api/bff/admin/ingestions", { method: "POST", body: fd });
+    // The file goes straight to the API, not through the BFF: Vercel caps
+    // proxied request bodies at 4.5 MB and handbooks run 6-15 MB. The BFF
+    // mints a 10-minute ticket (small JSON), the browser holds it only in
+    // memory for this one request.
+    let res: Response;
+    try {
+      const [ticketRes, infoRes] = await Promise.all([
+        fetch("/api/bff/admin/ingestions/upload-ticket", { method: "POST" }),
+        fetch("/api/upload-info", { cache: "no-store" }),
+      ]);
+      if (!ticketRes.ok || !infoRes.ok) {
+        setUploading(false);
+        setMsg({ ok: false, text: "Could not prepare the upload — sign in again and retry." });
+        return;
+      }
+      const { token } = await ticketRes.json();
+      const { apiBase } = await infoRes.json();
+      res = await fetch(`${apiBase}/api/admin/ingestions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+    } catch {
+      setUploading(false);
+      setMsg({ ok: false, text: "Upload failed — network error reaching the API." });
+      return;
+    }
     const data = await res.json().catch(() => null);
     setUploading(false);
     if (res.ok) {
