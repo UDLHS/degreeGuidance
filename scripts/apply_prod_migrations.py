@@ -38,8 +38,35 @@ CHAIN: list[tuple[str, str, str]] = [
     ("2cd4dc5ac4d2", "eb424f912bbe", "38_2cd4dc5ac4d2_unmapped_cutoffs.sql"),
     ("985e13967bd9", "2cd4dc5ac4d2", "39_985e13967bd9_conversation_flagged.sql"),
     ("093c47d4fb58", "985e13967bd9", "40_093c47d4fb58_agent_configs.sql"),
-    ("e75434db887c", "093c47d4fb58", "41_e75434db887c_factsheets.sql"),
+    # 41: DDL-only file; the 129 markdown seeds go in via parameterized
+    # inserts below (the generated literal INSERTs hit a quoting edge).
+    ("e75434db887c", "093c47d4fb58", "41_e75434db887c_factsheets_ddl.sql"),
 ]
+
+FACTSHEETS_DIR = Path(__file__).resolve().parent.parent / "content" / "factsheets"
+
+
+async def seed_factsheets(conn: asyncpg.Connection) -> int:
+    """Parameterized, idempotent seed of factsheets from the git snapshot —
+    exactly what migration 41's bulk_insert does locally, minus SQL escaping.
+    ON CONFLICT DO NOTHING so an admin-edited prod row is never overwritten."""
+    import hashlib
+
+    rows = []
+    for path in sorted(FACTSHEETS_DIR.glob("*.md")):
+        content = path.read_text(encoding="utf-8")
+        rows.append(
+            (path.stem, content, hashlib.sha256(content.encode()).hexdigest())
+        )
+    if not rows:
+        print("  WARNING: no factsheet files found to seed.")
+        return 0
+    await conn.executemany(
+        "INSERT INTO factsheets (course_number, content, content_hash) "
+        "VALUES ($1, $2, $3) ON CONFLICT (course_number) DO NOTHING",
+        rows,
+    )
+    return len(rows)
 
 
 async def main(dry_run: bool) -> int:
@@ -91,6 +118,9 @@ async def main(dry_run: bool) -> int:
                 print(f"ERROR: version is {now!r} after {fname}, expected {rev!r}. STOPPING.")
                 return 1
             print(f"  OK — prod now at {rev}")
+            if rev == "e75434db887c":
+                n = await seed_factsheets(conn)
+                print(f"  seeded factsheets (parameterized, idempotent): {n} files offered")
 
         # closing sanity: the new tables exist
         for tbl in (
