@@ -15,6 +15,7 @@ disposed per test.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 
@@ -256,6 +257,60 @@ async def test_extract_job_fails_cleanly_when_pdf_nowhere(
 
     await db_session.execute(text("DELETE FROM ingestion_runs WHERE run_id = :r"), {"r": rid})
     await db_session.commit()
+
+
+# ---- cancellation must not orphan the run (arq job_timeout / abort) ----
+
+async def test_cancelled_extraction_marks_run_failed(
+    db_session: AsyncSession, work_dir: Path, monkeypatch
+):
+    """Arq cancels jobs on job_timeout (a 15 MB book overran the old 300 s
+    default in prod) — the run must land at 'failed' with a clear error, not
+    stay orphaned at 'running' forever."""
+    import time
+
+    from apps.worker.jobs import extract_pdf as job_mod
+
+    rid = await _insert_run(db_session, status="running")
+    (work_dir / f"{rid}.pdf").write_bytes(_FAKE_PDF)
+
+    monkeypatch.setattr(
+        job_mod, "_extract_and_index", lambda *_a, **_k: time.sleep(5)
+    )
+
+    task = asyncio.create_task(
+        job_mod.extract_pdf_job(
+            None, run_id=str(rid), pdf_path=str(work_dir / f"{rid}.pdf"),
+            exam_year=SENTINEL_YEAR,
+        )
+    )
+    await asyncio.sleep(0.3)  # let it reach the blocking stage
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    row = (
+        await db_session.execute(
+            text("SELECT status, error_log, completed_at FROM ingestion_runs WHERE run_id = :r"),
+            {"r": rid},
+        )
+    ).first()
+    assert row.status == "failed", f"run must not stay orphaned (got {row.status})"
+    assert "cancelled" in (row.error_log or "")
+    assert row.completed_at is not None
+
+    await db_session.execute(text("DELETE FROM ingestion_runs WHERE run_id = :r"), {"r": rid})
+    await db_session.commit()
+
+
+async def test_worker_job_timeout_configured():
+    """The arq default (300 s) killed big-book extractions; the worker must
+    carry the sized-up timeout from settings."""
+    from apps.worker.settings import WorkerSettings
+    from core.config import settings as cfg
+
+    assert WorkerSettings.job_timeout == cfg.worker_job_timeout_seconds
+    assert WorkerSettings.job_timeout >= 1800  # never back to bite-sized
 
 
 # ---- the full split-instance chain: confirm + promote from DB only ----

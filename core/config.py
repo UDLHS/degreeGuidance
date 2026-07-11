@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # Ingestion working directory — uploaded PDFs + extracted CSVs (C2)
     ingestion_work_dir: str = Field(default="data/ingestion_work")
 
+    # Arq job timeout. Arq's default is 300 s — the 15 MB 2025 handbook needs
+    # ~8-10 min on a free-tier CPU (the 5.9 MB 2024 book measured 221 s), so
+    # extractions were killed mid-run. Sized for books several times larger
+    # than any seen so far; a yearly admin operation can afford the wait.
+    worker_job_timeout_seconds: int = Field(default=3600)
+
     # Permanent per-year archive: pre-promote snapshots + promoted artifacts
     # (raw PDF, final CSV, overrides/unmapped) — Phase 7 of the Phase-2 plan;
     # also the retention layer future year-comparison chat features read.

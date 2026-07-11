@@ -35,7 +35,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, text
+from sqlalchemy import delete, text, update as sa_update
 
 from core.config import settings
 from core.db import AsyncSessionLocal
@@ -85,6 +85,26 @@ def _extract_and_index(pdf_path: str, pages: list[int] | None):
     return extraction, logical, conflict_warnings, book_text, book_rows, book_warnings
 
 
+async def _mark_run_failed(run_id: str, message: str) -> None:
+    """Best-effort terminal bookkeeping on a FRESH session — used from the
+    cancellation path, where the job's own session can't be trusted. Never
+    raises: this runs while the task is being torn down."""
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                sa_update(IngestionRun)
+                .where(IngestionRun.run_id == uuid.UUID(run_id))
+                .values(
+                    status="failed",
+                    error_log=message,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+    except Exception:  # noqa: BLE001 - cleanup must never mask the cancellation
+        logger.exception("could not mark run %s failed after cancellation", run_id)
+
+
 async def extract_pdf_job(
     ctx,
     *,
@@ -96,6 +116,7 @@ async def extract_pdf_job(
     Path(settings.ingestion_work_dir).mkdir(parents=True, exist_ok=True)
 
     final_status = "failed"
+    cancelled = False
     async with AsyncSessionLocal() as db:
         run = await db.get(IngestionRun, uuid.UUID(run_id))
         if run is None:
@@ -228,13 +249,34 @@ async def extract_pdf_job(
                     f"{len(present)}/{len(courses)} active courses present in book"
                     f"{warn_note} — awaiting column mapping review"
                 )
+        except asyncio.CancelledError:
+            # Arq cancelled us — job_timeout expired or the job was aborted.
+            # CancelledError is a BaseException, so the Exception handler
+            # below never sees it and the run would stay orphaned at
+            # 'running' forever (exactly what the 300 s-timeout incident left
+            # behind). Record the failure on a FRESH session inside a shield
+            # — the outer session/transaction may be mid-flight, and the
+            # cleanup must survive further cancellation — then re-raise so
+            # arq still accounts the job as cancelled. The outer session's
+            # finally-commit is skipped via the flag.
+            cancelled = True
+            logger.warning("extract_pdf_job cancelled for run %s (timeout/abort)", run_id)
+            await asyncio.shield(
+                _mark_run_failed(
+                    run_id,
+                    "extraction cancelled — worker job timeout or abort; "
+                    "re-extract (the uploaded PDF is retained)",
+                )
+            )
+            raise
         except Exception as exc:  # noqa: BLE001 - record any failure on the run
             logger.exception("extract_pdf_job failed for run %s", run_id)
             run.status = final_status = "failed"
             run.error_log = f"{type(exc).__name__}: {exc}"
         finally:
-            run.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            if not cancelled:
+                run.completed_at = datetime.now(timezone.utc)
+                await db.commit()
             # NOTE: the PDF is intentionally retained — manual re-extraction
             # and the mapping/confirm stage need it.
 

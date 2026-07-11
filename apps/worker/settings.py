@@ -21,3 +21,7 @@ from core.config import settings
 class WorkerSettings:
     functions = [extract_pdf_job, index_factsheet_job]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    # Arq defaults to 300 s, which killed big-book extractions mid-run (the
+    # 15 MB 2025 handbook needs ~8-10 min on a free-tier CPU). See
+    # worker_job_timeout_seconds in core/config.py.
+    job_timeout = settings.worker_job_timeout_seconds
