@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.admin_audit import log_admin_action
 from apps.api.dependencies import get_current_admin, get_db
 from apps.api.queue import enqueue_index_factsheet
+from core.ingestion.unicode_section import split_label
 from core.models.auth import User
 from core.models.rag import Factsheet
 
@@ -109,10 +110,17 @@ async def list_factsheets(db: AsyncSession = Depends(get_db)) -> FactsheetListRe
     for r in rows:
         status_ = _index_status(r["fs_hash"], r["idx_hash"])
         counts[status_] = counts.get(status_, 0) + 1
+        # A factsheet covers the whole course of study, not one campus — strip
+        # the representative catalog name's trailing "(University …)" so
+        # "Medicine (Eastern University, Sri Lanka)" lists as just "Medicine".
+        # split_label removes only the LAST parenthetical, so names like
+        # "Applied Sciences (Biological Sc.) (Rajarata …)" keep their real
+        # qualifier: "Applied Sciences (Biological Sc.)".
+        clean_name = split_label(r["course_name"])[0] or r["course_name"]
         items.append(
             FactsheetListItem(
                 course_number=r["course_number"],
-                course_name=r["course_name"],
+                course_name=clean_name,
                 course_count=r["course_count"],
                 has_factsheet=r["fs_hash"] is not None,
                 version=r["version"],
