@@ -33,6 +33,11 @@ app = FastAPI(
     description="Sri Lankan university admissions guidance — eligibility + admin auth.",
 )
 
+# W1: per-client rate limiting on the anonymous public tier (see apps/api/guards.py)
+from apps.api.guards import public_rate_limit_middleware  # noqa: E402
+
+app.middleware("http")(public_rate_limit_middleware)
+
 app.include_router(chat.router)
 app.include_router(student.router)
 app.include_router(eligibility.router)

@@ -274,6 +274,14 @@ async def _interest_scores(
     if not interest_text.strip() or not course_codes:
         return {}
 
+    # W1 daily budget: interest-matching is the only Gemini dependency in the
+    # recommendation path. Out of budget -> skip it gracefully (the dimension
+    # goes inert; rankings still work) instead of failing the request.
+    from apps.api.guards import gemini_budget
+
+    if not gemini_budget.try_spend(1):
+        return {}
+
     # Embed the student's interest text as a query vector
     client = _get_client()
     result = client.models.embed_content(

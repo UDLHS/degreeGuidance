@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     # also the retention layer future year-comparison chat features read.
     archive_dir: str = Field(default="data/archive")
 
+    # W1 abuse/cost guards. Chat is the expensive path (Gemini + web search per
+    # message); the general public tier is cheap DB reads. The daily budget
+    # bounds total Gemini spend across chat + interest embeddings + the admin
+    # sandbox — when exhausted, chat 429s politely and interest-ranking
+    # degrades to inert (eligibility itself never needs Gemini).
+    rate_limit_chat_per_minute: int = Field(default=8)
+    rate_limit_public_per_minute: int = Field(default=120)
+    gemini_daily_call_budget: int = Field(default=1500)
+
     # Gemini API (RAG + chatbot)
     gemini_api_key: str = Field(default="", description="Google Gemini API key")
     gemini_embedding_model: str = Field(default="models/gemini-embedding-001")

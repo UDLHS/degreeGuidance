@@ -60,6 +60,20 @@ async def post_chat(
     payload: ChatRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponse:
+    # W1 daily budget: every chat request costs provider calls (model turns +
+    # possible web search). When the day's budget is gone, fail politely and
+    # cheaply — eligibility/recommendations stay fully functional without us.
+    from apps.api.guards import gemini_budget
+
+    if not gemini_budget.try_spend(1):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "The AI advisor has reached today's capacity. Your results and "
+                "eligibility checks still work — please try the chat again tomorrow."
+            ),
+        )
+
     gen_client, embed_client = _get_clients()
 
     # Resolve or create conversation

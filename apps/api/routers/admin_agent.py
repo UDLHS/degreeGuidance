@@ -217,6 +217,14 @@ async def test_config(
     """Run the real agent loop once with a draft config. Nothing is persisted —
     no conversation row, no cache change. Uses the same Gemini key as the live
     chat, so treat it as a real (billable/quota) call."""
+    from apps.api.guards import gemini_budget
+
+    if not gemini_budget.try_spend(1):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Daily Gemini budget exhausted — the sandbox shares the live chat's budget.",
+        )
+
     current = await resolve_agent_settings(db)
     facts = await _load_facts(db)
     draft = AgentSettings(

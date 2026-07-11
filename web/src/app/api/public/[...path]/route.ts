@@ -14,6 +14,12 @@ async function proxy(req: NextRequest, ctx: { params: { path?: string[] } }) {
   const headers = new Headers();
   const contentType = req.headers.get("content-type");
   if (contentType) headers.set("content-type", contentType);
+  // Forward the real client IP so the API's per-client rate limiting (W1)
+  // keys on the student, not on this proxy's egress address. On Vercel the
+  // platform sets x-forwarded-for on the incoming request; locally it may be
+  // absent, in which case the API falls back to the socket peer.
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) headers.set("x-forwarded-for", fwd);
 
   const init: RequestInit & { duplex?: "half" } = { method: req.method, headers };
   if (req.method !== "GET" && req.method !== "HEAD" && req.body) {
