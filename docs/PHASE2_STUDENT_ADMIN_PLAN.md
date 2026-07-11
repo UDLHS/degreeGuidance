@@ -68,6 +68,41 @@
 7.4 Post-promote checklist card on the run page: coverage gaps, stream-variant count, codeless count, **"students now see YYYY by default"**.
 **Gate:** dry-run a re-promote; snapshot written; checklist correct; suite baseline.
 
+## Phase 8 — New-course onboarding (added 2026-07-11, user request)  (size: M)
+
+**Problem (verified):** when a new handbook year introduces a new course, the
+pipeline already creates an inactive stub via change-review, and the Factsheets
+page already shows a red "no factsheet" slot once it's active — but there is
+**no admin UI/API for stream eligibility at all**, and the eligibility engine
+only serves courses with `course_stream_eligibility` rows. A new course can
+therefore be approved, activated, promoted, factsheeted… and still be
+**invisible to every student, silently**. Onboarding steps are also scattered
+across pages with nothing tracking completeness.
+
+**Design principle:** slots = *visible absences derived from live data*, never
+auto-created placeholder rows (an empty auto-created factsheet would be
+embedded into the KB and quoted by the agent — worse than missing).
+
+8.1 **Stream-eligibility editor** — GET/PUT `/api/admin/courses/{code}/streams`
+    (replace-set, validated, audited) + stream checkboxes on the Courses page.
+8.2 **Onboarding status** — per new/incomplete course, computed live:
+    active? streams set? cutoffs present (latest year)? factsheet exists?
+    subject rule exists or consciously ungated? Year-agnostic, so every future
+    book surfaces its new courses automatically.
+8.3 **UI** — "Needs onboarding" panel on the Courses page with deep links;
+    the post-promote checklist gains "new courses: X of Y fully onboarded".
+8.4 **Safety warning** — activating a course with zero streams warns
+    "students will not see this course until streams are set".
+8.5 Factsheet slot: already exists (missing badge + create-from-scratch
+    editor); the onboarding panel links straight to it. (AI-drafted factsheet
+    stays deferred and human-gated — plan §3.4.)
+
+**Gate:** simulated lifecycle test — new stub → streams → activate → sentinel
+cutoff → course appears in student eligibility; zero-stream activation warns.
+
+**Order note:** built immediately after W2 (it is yearly-loop reliability and
+should exist before the next real handbook).
+
 ---
 
 # Weakness phases (after majors — order fixed, scope agreed)
