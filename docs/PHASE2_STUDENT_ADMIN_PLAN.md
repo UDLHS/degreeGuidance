@@ -10,6 +10,7 @@
 
 | # | Decision |
 |---|----------|
+| D0 | **Year = A/L examination year** (settled 2026-07-12 after the prod duplicate-year incident). A cutoff dataset is labeled with the exam year the book states: *"Based on the results of the G.C.E. (A/L) Examination YYYY"*. handbook_YYYY.pdf is the book handed to cohort YYYY and carries exam **YYYY−1** cutoffs (2025 book → exam 2024, 2024 book → exam 2023, 2023 book → exam 2022). When uploading, the admin enters the **exam year**, not the file/handbook year. |
 | D1 | Year selection lives on the **results view** ("Viewing YYYY cutoffs ▾" switcher). The 5-step flow stays 5 steps; default = latest promoted year. |
 | D2 | Previous-year visibility per course = **delta chip + history popover** (no separate compare screen for now). |
 | D3 | **Factsheets move to the DB** as source of truth (seeded from the 129 `content/factsheets/*.md`; files remain as the git snapshot). Required for safe editing in prod (ephemeral FS). |
@@ -102,6 +103,41 @@ cutoff → course appears in student eligibility; zero-stream activation warns.
 
 **Order note:** built immediately after W2 (it is yearly-loop reliability and
 should exist before the next real handbook).
+
+## Phase 9 — Extraction control & recovery (added 2026-07-11, user request)  (size: S/M)
+
+**Order note (user, explicit):** build **AFTER everything else is done** — this
+is polish on an already-working pipeline, not a blocker.
+
+**Motivation (from a real incident):** the 2024 handbook extraction OOM-crash-
+looped on the free-tier worker (fixed in `8a0e588` by chunked PDF reads,
+1.25 GB→313 MB). While stuck, there was **no admin way to stop a running
+extraction** — it just retried until arq exhausted its tries and left the run
+orphaned at `running` forever, needing a manual DB reset + Redis re-enqueue
+(done by hand this session). Both gaps should become first-class admin actions.
+
+9.1 **Cancel a running extraction** — admin action on the run page:
+    `POST /api/admin/ingestions/{run_id}/cancel`. Uses arq's `abort_job`
+    (needs `allow_abort_jobs=True` on the worker) to signal the job, and marks
+    the run `cancelled` (new status in the `chk_run_status` check). The
+    long synchronous pdfplumber stage runs in `asyncio.to_thread`, so define
+    what cancel actually interrupts (between-stage checkpoints vs. hard abort)
+    and make partial artifacts safe to discard.
+9.2 **Recover an orphaned run** — admin action to reset a run stuck in
+    `running` (no live job) back to a re-runnable state and re-enqueue it,
+    reusing the stored PDF artifact (exactly the manual recovery done this
+    session — the artifact store already makes it a DB-only operation). Guard
+    so it only fires when Redis has no live/queued job for that run.
+9.3 **Liveness signal** — surface the arq worker health-check (last-seen
+    timestamp, in-progress/queued counts) on the admin dashboard so a hung or
+    down worker is visible before a user reports "still running".
+
+**Gate:** cancel a real extraction mid-run → status `cancelled`, no partial
+promote possible; orphan-recover a reset run → completes on the fixed worker;
+worker-down shows on the dashboard. Never breaks the normal happy-path flow
+(the whole pipeline — grid → consolidate → book-text → uni-code → suggest →
+columns → artifacts → needs_mapping — stays byte-identical; verified this
+session end-to-end at 313 MB).
 
 ---
 
