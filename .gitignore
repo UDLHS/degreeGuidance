@@ -49,4 +49,8 @@ out/
 *.pem
 *.key
 
-.gitignore
+# Windows download-marker ADS files (WSL shows them as real files)
+*:Zone.Identifier
+
+# Claude Code session-local state
+.claude/
