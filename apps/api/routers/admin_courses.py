@@ -21,6 +21,8 @@ from core.schemas.admin_course import (
     CourseCreate,
     CourseListResponse,
     CourseOut,
+    CourseStreamsOut,
+    CourseStreamsUpdate,
     CourseUpdate,
 )
 
@@ -58,6 +60,26 @@ async def _fetch_joined(db: AsyncSession, course_code: str) -> dict | None:
 def _audit_snapshot(joined: dict) -> dict:
     """Course-only columns for the audit log (drop the joined university fields)."""
     return {k: v for k, v in joined.items() if k not in ("university_code", "university_name_en")}
+
+
+_ZERO_STREAM_WARNING = (
+    "This course is active but has NO eligible streams — the eligibility "
+    "engine hides it from every student until streams are set."
+)
+
+
+async def _stream_codes_for(db: AsyncSession, course_code: str) -> list[str]:
+    rows = (
+        await db.execute(
+            text(
+                "SELECT s.code FROM course_stream_eligibility cse "
+                "JOIN streams s ON s.stream_id = cse.stream_id "
+                "WHERE cse.course_code = :cc ORDER BY s.code"
+            ),
+            {"cc": course_code},
+        )
+    ).scalars().all()
+    return list(rows)
 
 
 @router.get("/courses", response_model=CourseListResponse)
@@ -172,4 +194,92 @@ async def update_course(
         target_id=code, before=_audit_snapshot(before_joined), after=after, request=request,
     )
     await db.commit()
-    return CourseOut(**(await _fetch_joined(db, code)))
+    out = CourseOut(**(await _fetch_joined(db, code)))
+    # Phase 8.4: activating (or editing) a course that no stream can reach is
+    # a silent-invisibility trap — say so in the response.
+    if out.is_active and not await _stream_codes_for(db, code):
+        out.warning = _ZERO_STREAM_WARNING
+    return out
+
+
+# ── Stream eligibility (Phase 8.1) ───────────────────────────────────────────
+# The eligibility engine only serves courses with course_stream_eligibility
+# rows (EXISTS gate): a course with none is invisible to every student. These
+# endpoints make that set first-class and auditable.
+
+@router.get("/courses/{course_code}/streams", response_model=CourseStreamsOut)
+async def get_course_streams(
+    course_code: str,
+    db: AsyncSession = Depends(get_db),
+) -> CourseStreamsOut:
+    code = course_code.strip().upper()
+    course = (
+        await db.execute(
+            text("SELECT is_active FROM courses WHERE course_code = :cc"), {"cc": code}
+        )
+    ).first()
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    codes = await _stream_codes_for(db, code)
+    return CourseStreamsOut(
+        course_code=code,
+        is_active=bool(course.is_active),
+        stream_codes=codes,
+        warning=_ZERO_STREAM_WARNING if course.is_active and not codes else None,
+    )
+
+
+@router.put("/courses/{course_code}/streams", response_model=CourseStreamsOut)
+async def replace_course_streams(
+    course_code: str,
+    payload: CourseStreamsUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> CourseStreamsOut:
+    code = course_code.strip().upper()
+    course = (
+        await db.execute(
+            text("SELECT is_active FROM courses WHERE course_code = :cc"), {"cc": code}
+        )
+    ).first()
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    known = {
+        r.code: r.stream_id
+        for r in (await db.execute(text("SELECT stream_id, code FROM streams"))).all()
+    }
+    unknown = [c for c in payload.stream_codes if c not in known]
+    if unknown:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown stream code(s): {', '.join(unknown)}. Valid: {', '.join(sorted(known))}",
+        )
+
+    before = await _stream_codes_for(db, code)
+    await db.execute(
+        text("DELETE FROM course_stream_eligibility WHERE course_code = :cc"), {"cc": code}
+    )
+    for c in payload.stream_codes:
+        await db.execute(
+            text(
+                "INSERT INTO course_stream_eligibility (course_code, stream_id) "
+                "VALUES (:cc, :sid)"
+            ),
+            {"cc": code, "sid": known[c]},
+        )
+
+    after = sorted(payload.stream_codes)
+    await log_admin_action(
+        db, admin=admin, action_type="course.streams_update",
+        target_table="course_stream_eligibility", target_id=code,
+        before={"stream_codes": before}, after={"stream_codes": after}, request=request,
+    )
+    await db.commit()
+    return CourseStreamsOut(
+        course_code=code,
+        is_active=bool(course.is_active),
+        stream_codes=after,
+        warning=_ZERO_STREAM_WARNING if course.is_active and not after else None,
+    )

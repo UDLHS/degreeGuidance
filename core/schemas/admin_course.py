@@ -77,6 +77,36 @@ class CourseOut(BaseModel):
     # joined from universities (read-only context)
     university_code: str | None = None
     university_name_en: str | None = None
+    # Phase 8.4 safety signal — set when a mutation leaves the course active
+    # with ZERO eligible streams (the engine's EXISTS gate then hides it from
+    # every student, silently). Never persisted; response-only.
+    warning: str | None = None
+
+
+class CourseStreamsUpdate(BaseModel):
+    """Replace-set of eligible stream codes for one course (Phase 8.1)."""
+
+    stream_codes: list[str] = Field(
+        default_factory=list,
+        description="Full new set, e.g. ['PHYSICAL_SCIENCE','ENGINEERING_TECH']. Empty = none.",
+    )
+
+    @field_validator("stream_codes")
+    @classmethod
+    def _norm(cls, v: list[str]) -> list[str]:
+        seen: list[str] = []
+        for c in v:
+            c = c.strip().upper()
+            if c and c not in seen:
+                seen.append(c)
+        return seen
+
+
+class CourseStreamsOut(BaseModel):
+    course_code: str
+    is_active: bool
+    stream_codes: list[str]
+    warning: str | None = None
 
 
 class CourseListResponse(BaseModel):

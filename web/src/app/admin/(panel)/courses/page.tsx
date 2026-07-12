@@ -86,6 +86,12 @@ export default function CoursesPage() {
   const [saving, setSaving] = useState(false);
   const [dialogErr, setDialogErr] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  // Phase 8.1 — stream eligibility editor. The engine only serves courses
+  // with stream rows: an active course with none is invisible to students.
+  const [allStreams, setAllStreams] = useState<{ code: string; name_en: string }[]>([]);
+  const [streamCodes, setStreamCodes] = useState<string[]>([]);
+  const [origStreams, setOrigStreams] = useState<string[]>([]);
+  const [warnMsg, setWarnMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,10 +134,25 @@ export default function CoursesPage() {
     })();
   }, []);
 
+  // Stream catalog for the checkboxes (public reference data).
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/public/reference", { cache: "no-store" });
+      if (!res.ok) return;
+      const d = await res.json();
+      setAllStreams((d.streams ?? []).map((s: { code: string; name_en: string }) => ({
+        code: s.code, name_en: s.name_en,
+      })));
+    })();
+  }, []);
+
   function openCreate() {
     setEditCode(null);
     setForm(EMPTY);
     setDialogErr(null);
+    setWarnMsg(null);
+    setStreamCodes([]);
+    setOrigStreams([]);
     setOpen(true);
   }
 
@@ -150,7 +171,25 @@ export default function CoursesPage() {
       is_active: c.is_active,
     });
     setDialogErr(null);
+    setWarnMsg(null);
+    setStreamCodes([]);
+    setOrigStreams([]);
     setOpen(true);
+    // load the course's current stream set
+    (async () => {
+      const res = await fetch(`/api/bff/admin/courses/${c.course_code}/streams`, { cache: "no-store" });
+      if (!res.ok) return;
+      const d = await res.json();
+      setStreamCodes(d.stream_codes ?? []);
+      setOrigStreams(d.stream_codes ?? []);
+      if (d.warning) setWarnMsg(d.warning);
+    })();
+  }
+
+  function toggleStream(code: string) {
+    setStreamCodes((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
   }
 
   async function submit(e: React.FormEvent) {
@@ -188,12 +227,43 @@ export default function CoursesPage() {
       });
     }
     const data = await res.json().catch(() => null);
-    setSaving(false);
-    if (res.ok) {
-      setOpen(false);
-      load();
-    } else {
+    if (!res.ok) {
+      setSaving(false);
       setDialogErr(typeof data?.detail === "string" ? data.detail : `Failed (${res.status}).`);
+      return;
+    }
+
+    // Phase 8.1: persist the stream set when it changed (edit mode only —
+    // replace-set semantics, audited server-side).
+    let warning: string | null = data?.warning ?? null;
+    const streamsChanged =
+      !isCreate &&
+      JSON.stringify([...streamCodes].sort()) !== JSON.stringify([...origStreams].sort());
+    if (streamsChanged) {
+      const sres = await fetch(`/api/bff/admin/courses/${editCode}/streams`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ stream_codes: streamCodes }),
+      });
+      const sdata = await sres.json().catch(() => null);
+      if (!sres.ok) {
+        setSaving(false);
+        setDialogErr(
+          typeof sdata?.detail === "string" ? sdata.detail : `Streams update failed (${sres.status}).`,
+        );
+        return;
+      }
+      warning = sdata?.warning ?? warning;
+    }
+
+    setSaving(false);
+    load();
+    if (warning) {
+      // Phase 8.4: the course is active but reachable by no stream — keep the
+      // dialog open so the admin actually sees it before moving on.
+      setWarnMsg(warning);
+    } else {
+      setOpen(false);
     }
   }
 
@@ -409,6 +479,32 @@ export default function CoursesPage() {
                   Active
                 </label>
               </div>
+              {editCode !== null ? (
+                <div className="space-y-1.5 rounded-md border p-3">
+                  <Label>Eligible streams</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Students only see this course from a ticked stream. No ticks = invisible to
+                    everyone.
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-1">
+                    {allStreams.map((s) => (
+                      <label key={s.code} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={streamCodes.includes(s.code)}
+                          onChange={() => toggleStream(s.code)}
+                        />
+                        {s.name_en}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {warnMsg ? (
+                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  ⚠ {warnMsg}
+                </p>
+              ) : null}
               {dialogErr ? <p className="text-sm text-destructive">{dialogErr}</p> : null}
             </div>
             <DialogFooter>
