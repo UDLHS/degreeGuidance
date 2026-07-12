@@ -97,6 +97,13 @@ embedded into the KB and quoted by the agent — worse than missing).
 8.5 Factsheet slot: already exists (missing badge + create-from-scratch
     editor); the onboarding panel links straight to it. (AI-drafted factsheet
     stays deferred and human-gated — plan §3.4.)
+8.6 **Admin-authored knowledge articles** (added 2026-07-12, user request) —
+    knowledge beyond courses: aptitude-test guides, UGC procedures,
+    scholarship rules, deadlines. New `articles` concept indexed through the
+    SAME chunk→embed→reindex machinery factsheets use (source_type
+    'article'); admin Knowledge page gains an Articles tab with a
+    title+markdown editor. Complements the factsheet editor (which already
+    covers per-course manual knowledge).
 
 **Gate:** simulated lifecycle test — new stub → streams → activate → sentinel
 cutoff → course appears in student eligibility; zero-stream activation warns.
@@ -138,6 +145,14 @@ worker-down shows on the dashboard. Never breaks the normal happy-path flow
 (the whole pipeline — grid → consolidate → book-text → uni-code → suggest →
 columns → artifacts → needs_mapping — stays byte-identical; verified this
 session end-to-end at 313 MB).
+
+**Ops note — pathological PDFs (settled 2026-07-12):** a book that extracts
+absurdly slowly (the original 2025 file: ~43 s *per document open* from giant
+compressed object streams → prod timeout) is fixed by **normalizing the
+file** (lossless `pikepdf` rewrite, object streams disabled — proven
+cell-identical output, 14× faster, 330 MB peak), never by bending the
+pipeline around one bad encoder. Candidate 9.4: auto-detect the open-toll at
+upload and normalize server-side.
 
 ---
 

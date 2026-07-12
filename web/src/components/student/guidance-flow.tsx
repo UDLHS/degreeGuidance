@@ -516,8 +516,9 @@ function ZScoreStep({
       setInputError("Enter a valid number");
       return;
     }
-    if (num < -1 || num > 3) {
-      setInputError("Z-score must be between −1.0000 and 3.0000");
+    // Official standardisation can exceed 3 — real maximum is 4.0.
+    if (num < -1 || num > 4) {
+      setInputError("Z-score must be between −1.0000 and 4.0000");
       return;
     }
     setInputError(null);
@@ -552,7 +553,7 @@ function ZScoreStep({
           {inputError ? (
             <p className="text-[13.5px] font-semibold text-[#b4485f]">{inputError}</p>
           ) : (
-            <p className="text-[13px] text-[#9aa7be]">Valid range: −1.0000 to 3.0000</p>
+            <p className="text-[13px] text-[#9aa7be]">Valid range: −1.0000 to 4.0000</p>
           )}
         </div>
         <div className="mt-[26px] border-t border-dashed border-[#e3e9f2] pt-[22px] text-center text-[14.5px] leading-[1.5] text-[#7c89a0]">

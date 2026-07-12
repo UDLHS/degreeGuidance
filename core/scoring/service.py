@@ -497,6 +497,10 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
         subject_filtered_count=elig.subject_filtered_count,
         bucket_counts=dict(Counter(s.bucket for s in scored)),
         recommendations=recommendations,
+        # near-miss window passthrough — unscored by design (not eligibility)
+        later_round_margin=elig.later_round_margin,
+        later_round_count=elig.later_round_count,
+        later_round=elig.later_round,
         also_offered_no_cutoff_count=also_count,
         also_offered_no_cutoff=also,
     )

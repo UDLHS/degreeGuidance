@@ -84,7 +84,7 @@ async def test_unknown_stream_is_422(client: AsyncClient):
     assert r.status_code == 422
 
 
-@pytest.mark.parametrize("bad_z", [3.5, -2.5])
+@pytest.mark.parametrize("bad_z", [4.5, -2.5])  # cap raised 3.0->4.0 (2026-07-12): 3.5 is a legal score
 async def test_z_score_out_of_range_is_422(client: AsyncClient, bad_z: float):
     r = await client.post(
         ENDPOINT,

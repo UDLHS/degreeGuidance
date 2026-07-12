@@ -8,8 +8,9 @@ Design notes:
 - The request accepts human-friendly *codes* (district_code='COLOMBO',
   stream_code='BIO_SCIENCE'), not internal integer IDs. The engine resolves
   codes -> IDs and raises a 422 if a code is unknown.
-- z_score bounds [-2.0, 3.0] match the validator range documented on
-  z_score_cutoffs.z_score (handbook observed range ~[-0.7, 2.9]).
+- z_score bounds [-2.0, 4.0]: the official standardisation can exceed 3
+  (user-confirmed real maximum 4.0, 2026-07-12); handbook cutoffs observe
+  ~[-0.7, 2.9] but a student's own score is capped only by the exam itself.
 - exam_year is optional; when omitted the engine uses the most recent A/L year
   loaded in z_score_cutoffs. With only year=2023 loaded today, that is 2023.
 """
@@ -40,8 +41,8 @@ class EligibilityRequest(BaseModel):
     z_score: float = Field(
         ...,
         ge=-2.0,
-        le=3.0,
-        description="Student's A/L Z-score. Range [-2.0, 3.0].",
+        le=4.0,
+        description="Student's A/L Z-score. Range [-2.0, 4.0].",
     )
     district_code: str = Field(
         ...,
@@ -110,6 +111,29 @@ class EligibilityResultItem(BaseModel):
     )
 
 
+class LaterRoundItem(BaseModel):
+    """A course whose cutoff sits just ABOVE the student's z-score.
+
+    Not eligibility: in past cycles, seats vacated after the first UGC
+    selection round have admitted near-miss students in later rounds. Shown
+    in a clearly-disclaimed section so a student 0.05 short of their dream
+    course knows it isn't necessarily over. Subject rules and stream gating
+    still apply — a course the student can never take is never shown."""
+
+    course_code: str
+    course_number: str | None
+    course_name: str
+    university_code: str
+    university_name: str
+    cutoff_z_score: float
+    gap_above: float = Field(
+        ...,
+        description="cutoff minus student z_score; always > 0 in this list.",
+    )
+    requires_aptitude_test: bool
+    available_mediums: list[str] = Field(default_factory=list)
+
+
 class EligibilityResponse(BaseModel):
     exam_year_used: int
     confidence_tier: Literal["current", "previous_year", "estimated"]
@@ -129,3 +153,16 @@ class EligibilityResponse(BaseModel):
         ),
     )
     results: list[EligibilityResultItem]
+    later_round_margin: float = Field(
+        default=0.0,
+        description="Width of the later-rounds window actually applied (settings).",
+    )
+    later_round_count: int = Field(default=0)
+    later_round: list[LaterRoundItem] = Field(
+        default_factory=list,
+        description=(
+            "Courses with cutoff in (z, z + later_round_margin], closest first — "
+            "sometimes reachable when seats vacate in later UGC selection rounds. "
+            "NOT eligibility; presented with an explicit disclaimer."
+        ),
+    )

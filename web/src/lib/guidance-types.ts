@@ -51,6 +51,20 @@ export type AlsoOfferedItem = {
   reason: string;
 };
 
+/** Cutoff just above the student's z — sometimes reached in later UGC
+ * selection rounds when seats vacate. NOT eligibility; shown disclaimed. */
+export type LaterRoundItem = {
+  course_code: string;
+  course_number: string | null;
+  course_name: string;
+  university_code: string;
+  university_name: string;
+  cutoff_z_score: number;
+  gap_above: number;
+  requires_aptitude_test: boolean;
+  available_mediums: string[];
+};
+
 export type RecommendationResponse = {
   exam_year_used: number;
   confidence_tier: "current" | "previous_year" | "estimated";
@@ -61,6 +75,9 @@ export type RecommendationResponse = {
   subject_filtered_count: number;
   bucket_counts: Record<string, number>;
   recommendations: ScoredRecommendation[];
+  later_round_margin: number;
+  later_round_count: number;
+  later_round: LaterRoundItem[];
   also_offered_no_cutoff_count: number;
   also_offered_no_cutoff: AlsoOfferedItem[];
 };

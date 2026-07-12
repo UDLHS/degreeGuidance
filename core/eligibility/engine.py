@@ -34,10 +34,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.eligibility.arts_basket import check_arts_eligibility
 from core.eligibility.subject_requirements import SubjectResult, evaluate_subject_rule
 from core.models.eligibility import EligibilityAudit
+from core.config import settings
 from core.schemas.eligibility import (
     EligibilityRequest,
     EligibilityResponse,
     EligibilityResultItem,
+    LaterRoundItem,
 )
 
 ARTS_COURSE_NUMBER = "019"
@@ -96,7 +98,10 @@ _CORE_QUERY = text(
     WHERE zc.year         = :exam_year
       AND zc.district_id  = :district_id
       AND COALESCE(so.z_score, zc.z_score) IS NOT NULL
-      AND COALESCE(so.z_score, zc.z_score) <= :student_z_score
+      -- ceiling = student z + later-rounds margin: rows above the student's
+      -- own z are NOT eligible — they surface in the disclaimed "possible in
+      -- later selection rounds" list (classified in Python by margin sign).
+      AND COALESCE(so.z_score, zc.z_score) <= :z_ceiling
       AND c.is_active     = TRUE
       AND EXISTS (
         SELECT 1 FROM course_stream_eligibility cse
@@ -240,8 +245,8 @@ async def evaluate_eligibility(
             {
                 "exam_year": used_year,
                 "district_id": district_id,
-                "student_z_score": Decimal(str(req.z_score)),
                 "student_stream_id": stream_id,
+                "z_ceiling": Decimal(str(req.z_score)) + Decimal(str(settings.later_round_z_margin)),
             },
         )
     ).mappings().all()
@@ -251,19 +256,44 @@ async def evaluate_eligibility(
     rules_by_number = await _fetch_subject_rules(session, course_numbers)
 
     results: list[EligibilityResultItem] = []
+    later_round: list[LaterRoundItem] = []
     eligible_count = 0
     conditional_count = 0
     subject_filtered_count = 0
 
     for r in rows:
+        cutoff = float(r["cutoff_z_score"])
+        margin = round(req.z_score - cutoff, 4)
+
         if not _passes_subject_requirement(
             r["course_number"], student_subjects, rules_by_number, req.stream_code
         ):
-            subject_filtered_count += 1
+            # subject_filtered_count keeps its historical meaning: courses the
+            # student CLEARED on z but lost on subjects. A near-miss course
+            # they also can't take on subjects is silently dropped.
+            if margin >= 0:
+                subject_filtered_count += 1
             continue
 
-        cutoff = float(r["cutoff_z_score"])
-        margin = round(req.z_score - cutoff, 4)
+        if margin < 0:
+            # Above the student's z but inside the later-rounds window: in past
+            # cycles, vacated seats admitted near-miss students in later UGC
+            # rounds. Never counted as eligible, never scored.
+            later_round.append(
+                LaterRoundItem(
+                    course_code=r["course_code"],
+                    course_number=r["course_number"],
+                    course_name=r["course_name"],
+                    university_code=r["university_code"],
+                    university_name=r["university_name"],
+                    cutoff_z_score=cutoff,
+                    gap_above=round(-margin, 4),
+                    requires_aptitude_test=bool(r["requires_aptitude_test"]),
+                    available_mediums=list(r["available_mediums"] or []),
+                )
+            )
+            continue
+
         conditional = bool(r["requires_aptitude_test"])
         if conditional:
             conditional_count += 1
@@ -306,6 +336,10 @@ async def evaluate_eligibility(
         total_count=len(results),
         subject_filtered_count=subject_filtered_count,
         results=results,
+        later_round_margin=settings.later_round_z_margin,
+        later_round_count=len(later_round),
+        # closest miss first — the most actionable for the student
+        later_round=sorted(later_round, key=lambda i: i.gap_above),
     )
 
     latency_ms = int((time.perf_counter() - started) * 1000)

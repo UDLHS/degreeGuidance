@@ -52,7 +52,10 @@ from core.models import (
 MIN_VALID_YEAR = 2010
 MAX_VALID_YEAR = 2030
 MIN_VALID_ZSCORE = -2.0
-MAX_VALID_ZSCORE = 3.0
+# Official standardisation can exceed 3 (real max 4.0, user-confirmed
+# 2026-07-12); books observe ~[-0.7, 2.9] but the guard must never reject a
+# legitimate printed value. Still catches merge-glitch misreads like 12.409.
+MAX_VALID_ZSCORE = 4.0
 
 # asyncpg caps bind parameters at 32,767 per statement. A full handbook is
 # ~6,600 rows x 5 params ≈ 33,000 — the single-statement upsert sat 142 params

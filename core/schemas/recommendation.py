@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
-from core.schemas.eligibility import EligibilityRequest
+from core.schemas.eligibility import EligibilityRequest, LaterRoundItem
 
 
 class RecommendationRequest(EligibilityRequest):
@@ -72,5 +72,12 @@ class RecommendationResponse(BaseModel):
     subject_filtered_count: int = 0
     bucket_counts: dict[str, int]
     recommendations: list[ScoredRecommendation]
+    # Cutoff just above the student's z (within later_round_margin): in past
+    # cycles, later UGC selection rounds admitted near-miss students when
+    # seats vacated. Passed through from the eligibility engine UNSCORED —
+    # explicitly not eligibility; the UI shows it disclaimed, below the list.
+    later_round_margin: float = 0.0
+    later_round_count: int = 0
+    later_round: list[LaterRoundItem] = Field(default_factory=list)
     also_offered_no_cutoff_count: int
     also_offered_no_cutoff: list[AlsoOfferedItem]

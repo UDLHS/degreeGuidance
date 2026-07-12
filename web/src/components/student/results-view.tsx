@@ -258,6 +258,52 @@ export function ResultsView({
           );
         })}
 
+        {results.later_round_count > 0 ? (
+          <section className="mb-10 mt-2">
+            <div className="mb-[18px] flex flex-wrap items-center gap-[14px]">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#f3eefe] px-[15px] py-[7px] text-sm font-bold text-[#7a5cc4]">
+                <span className="h-[9px] w-[9px] rounded-full bg-[#7a5cc4]" />
+                Just above your Z-score
+              </span>
+              <span className="text-sm font-semibold text-[#9aa7be]">
+                {results.later_round_count} programme{results.later_round_count === 1 ? "" : "s"}
+              </span>
+              <span className="flex-1 text-sm text-[#9aa7be]">
+                within +{results.later_round_margin.toFixed(4)} of your score
+              </span>
+            </div>
+            <p className="mb-4 max-w-[680px] text-sm leading-[1.5] text-[#7c89a0]">
+              Your Z-score is below these cutoffs — but in past years, seats freed up after the
+              first round of UGC selections have sometimes admitted students in later rounds.
+              Not guaranteed and not an eligibility promise: keep them on your radar when filling
+              your application order.
+            </p>
+            <div className="flex flex-col gap-2">
+              {results.later_round.map((it) => (
+                <div
+                  key={it.course_code + it.university_code}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#e9e2f8] bg-white px-5 py-3 text-sm"
+                >
+                  <span className="font-medium">
+                    {it.course_name}
+                    {it.requires_aptitude_test ? (
+                      <span className="ml-2 rounded-full bg-[#fdf3e4] px-2 py-[2px] text-[11.5px] font-semibold text-[#a1691f]">
+                        aptitude test
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="flex items-center gap-3 tabular-nums">
+                    <span className="text-[#9aa7be]">cutoff {it.cutoff_z_score.toFixed(4)}</span>
+                    <span className="rounded-full bg-[#f3eefe] px-2 py-[2px] text-[12px] font-semibold text-[#7a5cc4]">
+                      +{it.gap_above.toFixed(4)} above you
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         {results.also_offered_no_cutoff_count > 0 ? (
           <section className="mt-4">
             <div className="mb-3 text-sm font-bold text-[#44546f]">
