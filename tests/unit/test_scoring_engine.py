@@ -84,13 +84,14 @@ def test_bucket_safe_for_comfortable_margin():
     assert scored.is_marginal is False
 
 
-def test_bucket_ambitious_high_fit_low_margin():
-    # ambitious needs total>=0.6 AND margin<0.05 — only reachable when another
-    # dimension lifts the total. Preferred-uni does that here.
+def test_bucket_tight_clear_is_consider_not_ambitious():
+    # User decision 2026-07-13: 'ambitious' is the student-facing tab for
+    # courses ABOVE the student's z (later-rounds window) — never an eligible
+    # bucket. A tight clear (margin<0.05) therefore lands in 'consider'.
     profile = ScoringProfile(z_score=2.02, district_id=1, preferred_university_codes=frozenset({"CMB"}))
     scored = score_course(_course("A", margin=0.02, uni="CMB"), profile, CONFIG)
     assert scored.is_marginal is True
-    assert scored.bucket == "ambitious"
+    assert scored.bucket == "consider"
 
 
 def test_marginal_flag_within_band():

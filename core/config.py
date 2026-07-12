@@ -53,12 +53,12 @@ class Settings(BaseSettings):
     # Prod sets CORS_ALLOW_ORIGINS to the deployed web app's origin.
     cors_allow_origins: str = Field(default="http://localhost:3000")
 
-    # Later-selection-rounds window (user decision 2026-07-12): courses whose
-    # cutoff sits at most this far ABOVE the student's z-score are shown in a
-    # clearly-disclaimed "possible in later rounds" section — seats vacated
-    # after the first round have historically admitted near-miss students.
+    # Later-selection-rounds window (user decisions 2026-07-12/13): courses
+    # whose cutoff sits at most this far ABOVE the student's z-score form the
+    # student-facing "Ambitious" tab — seats vacated after the first round
+    # have historically admitted near-miss students in later UGC rounds.
     # Tunable per deployment; never implies eligibility.
-    later_round_z_margin: float = Field(default=0.2)
+    later_round_z_margin: float = Field(default=0.15)
 
     # W1 abuse/cost guards. Chat is the expensive path (Gemini + web search per
     # message); the general public tier is cheap DB reads. The daily budget

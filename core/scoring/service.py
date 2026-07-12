@@ -485,6 +485,13 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
         for it in [item_by_code[s.course_code]]
     ]
 
+    # Ordering (user decision 2026-07-13): with NO stated preferences a
+    # student is asking "what's the highest course I can get?" — serve the
+    # ladder, highest cutoff first. With preferences, the personalised score
+    # order stands (score_courses already sorted by total_score).
+    if not profile.has_preferences:
+        recommendations.sort(key=lambda r: (-r.cutoff_z_score, r.course_code))
+
     also_count, also = await _also_offered(session, stream_id, district_id, elig.exam_year_used)
 
     return RecommendationResponse(

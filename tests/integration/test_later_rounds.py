@@ -108,11 +108,13 @@ async def test_eligible_course_never_duplicated(db_session, sentinel_cutoffs):
     assert "013B" in later  # 1.60 is 0.05 above 1.55
 
 
-async def test_sorted_closest_miss_first(db_session, sentinel_cutoffs):
+async def test_sorted_highest_cutoff_first(db_session, sentinel_cutoffs):
+    # User decision 2026-07-13: every student-facing group orders
+    # higher cutoff -> lower.
     resp = await evaluate_eligibility(db_session, _req(1.45))
-    gaps = [i.gap_above for i in resp.later_round]
-    assert gaps == sorted(gaps)
-    assert resp.later_round[0].course_code == "013A"  # 0.05 before the 0.15s
+    cutoffs = [i.cutoff_z_score for i in resp.later_round]
+    assert cutoffs == sorted(cutoffs, reverse=True)
+    assert resp.later_round[0].cutoff_z_score == pytest.approx(1.6)
 
 
 async def test_subject_rule_gates_later_round(db_session, sentinel_cutoffs):
@@ -125,6 +127,30 @@ async def test_subject_rule_gates_later_round(db_session, sentinel_cutoffs):
 async def test_window_width_reported(db_session, sentinel_cutoffs):
     resp = await evaluate_eligibility(db_session, _req(1.45))
     assert resp.later_round_margin == pytest.approx(settings.later_round_z_margin)
+
+
+# ---- normal-mode ordering: the ladder, highest cutoff first ----
+
+async def test_normal_mode_orders_cutoff_descending(
+    client: AsyncClient, sentinel_cutoffs
+):
+    """With no preferences the student asks 'what's the highest course I can
+    get?' — recommendations come highest cutoff first (user decision
+    2026-07-13). Preference mode keeps the personalised score order."""
+    r = await client.post("/api/v1/recommendations", json={
+        "z_score": 1.65, "district_code": "COLOMBO", "stream_code": "PHYSICAL_SCIENCE",
+        "exam_year": SENTINEL_YEAR,
+        "subjects": [{"subject": s.subject, "grade": s.grade} for s in PS_SUBJECTS],
+        "preferred_university_codes": [], "interests": None,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["mode"] == "normal"
+    cutoffs = [x["cutoff_z_score"] for x in body["recommendations"]]
+    assert cutoffs == sorted(cutoffs, reverse=True)
+    assert cutoffs[0] == pytest.approx(1.6)
+    # ambitious never appears as an eligible bucket any more
+    assert "ambitious" not in body["bucket_counts"]
 
 
 # ---- z-score cap: official standardisation exceeds 3; real max is 4.0 ----

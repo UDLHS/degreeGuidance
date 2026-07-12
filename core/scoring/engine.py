@@ -269,10 +269,13 @@ DIMENSIONS: list[tuple[str, DimensionFn]] = [
 
 
 def _bucket(total: float, margin: float, th: dict) -> str:
+    """Eligible courses split into safe/consider only (user decision
+    2026-07-13): 'Ambitious' is now the student-facing tab for courses ABOVE
+    the student's z (the later-rounds window) — never an eligible bucket.
+    Tight clears live in 'consider'. th's ambitious_* keys are retained in
+    stored configs but intentionally unused."""
     if total >= float(th["safe_score"]) and margin >= float(th["safe_margin"]):
         return "safe"
-    if total >= float(th["ambitious_score"]) and margin < float(th["ambitious_margin"]):
-        return "ambitious"
     return "consider"
 
 

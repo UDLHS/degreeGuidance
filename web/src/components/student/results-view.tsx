@@ -8,27 +8,29 @@ import type {
   ScoredRecommendation,
 } from "@/lib/guidance-types";
 
-const BUCKET_META: Record<string, { label: string; color: string; bg: string; desc: string }> = {
+type TabKey = "safe" | "consider" | "ambitious";
+
+const TAB_META: Record<TabKey, { label: string; color: string; bg: string; desc: string }> = {
   safe: {
-    label: "Safe choice",
+    label: "Safe",
     color: "#0a7d54",
     bg: "#e4f5ec",
-    desc: "You're comfortably above the cutoff.",
+    desc: "You're comfortably above the cutoff — eligible with room to spare.",
+  },
+  consider: {
+    label: "Consider",
+    color: "#b07407",
+    bg: "#fbf1da",
+    desc: "Eligible — your score clears the cutoff, some more narrowly than others.",
   },
   ambitious: {
     label: "Ambitious",
     color: "#b4485f",
     bg: "#fbe9ed",
-    desc: "A strong fit, but right at the edge of the cutoff.",
-  },
-  consider: {
-    label: "Worth considering",
-    color: "#b07407",
-    bg: "#fbf1da",
-    desc: "Eligible, with more room between your score and the cutoff.",
+    desc: "Above your score — sometimes reached in the later UGC selection rounds.",
   },
 };
-const BUCKET_ORDER = ["safe", "ambitious", "consider"];
+const TAB_ORDER: TabKey[] = ["safe", "consider", "ambitious"];
 
 const STREAM_SHORT: Record<string, string> = {
   PHYSICAL_SCIENCE: "Physical Sci",
@@ -116,6 +118,17 @@ export function ResultsView({
   for (const r of results.recommendations) {
     (byBucket[r.bucket] ??= []).push(r);
   }
+
+  // Tabs: default to the first group that has anything to show.
+  const [tab, setTab] = useState<TabKey>("safe");
+  useEffect(() => {
+    const first =
+      TAB_ORDER.find((k) =>
+        k === "ambitious" ? results.later_round_count > 0 : (byBucket[k]?.length ?? 0) > 0,
+      ) ?? "safe";
+    setTab(first);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results]);
 
   // Cutoff history for trend chips — one bulk call per (district, stream),
   // stream-aware (matches the engine's override semantics). Failure is
@@ -225,26 +238,49 @@ export function ResultsView({
           <div className="mb-8" />
         )}
 
-        {BUCKET_ORDER.filter((k) => byBucket[k]?.length).map((key) => {
-          const meta = BUCKET_META[key];
-          const degrees = byBucket[key];
-          return (
-            <section key={key} className="mb-10">
-              <div className="mb-[18px] flex flex-wrap items-center gap-[14px]">
+        {/* Three tabs (user decision 2026-07-13): Safe / Consider / Ambitious.
+            Ambitious = courses ABOVE the student's z (later-rounds window),
+            never eligibility. Order inside each group: higher cutoff first. */}
+        <div className="mb-6 flex flex-wrap gap-2">
+          {TAB_ORDER.map((key) => {
+            const meta = TAB_META[key];
+            const count =
+              key === "ambitious" ? results.later_round_count : (byBucket[key]?.length ?? 0);
+            const active = tab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className="inline-flex items-center gap-2 rounded-full border px-[16px] py-[8px] text-sm font-bold transition-colors"
+                style={
+                  active
+                    ? { color: meta.color, background: meta.bg, borderColor: meta.color }
+                    : { color: "#7c89a0", background: "#fff", borderColor: "#e3e9f2" }
+                }
+              >
+                <span className="h-[9px] w-[9px] rounded-full" style={{ background: active ? meta.color : "#c4cee0" }} />
+                {meta.label}
                 <span
-                  className="inline-flex items-center gap-2 rounded-full px-[15px] py-[7px] text-sm font-bold"
-                  style={{ color: meta.color, background: meta.bg }}
+                  className="rounded-full px-[7px] py-[1px] text-[12px] tabular-nums"
+                  style={active ? { background: "#ffffffaa" } : { background: "#f1f4f9" }}
                 >
-                  <span className="h-[9px] w-[9px] rounded-full" style={{ background: meta.color }} />
-                  {meta.label}
+                  {count}
                 </span>
-                <span className="text-sm font-semibold text-[#9aa7be]">
-                  {degrees.length} programme{degrees.length === 1 ? "" : "s"}
-                </span>
-                <span className="flex-1 text-sm text-[#9aa7be]">{meta.desc}</span>
-              </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {tab !== "ambitious" ? (
+          <section className="mb-10">
+            <p className="mb-4 text-sm text-[#9aa7be]">{TAB_META[tab].desc}</p>
+            {(byBucket[tab]?.length ?? 0) === 0 ? (
+              <p className="rounded-xl border border-dashed border-[#e3e9f2] bg-white px-5 py-6 text-sm text-[#9aa7be]">
+                Nothing in this group for your answers.
+              </p>
+            ) : (
               <div className="flex flex-col gap-[14px]">
-                {degrees.map((d) => (
+                {(byBucket[tab] ?? []).map((d) => (
                   <CourseCard
                     key={d.course_code}
                     d={d}
@@ -254,55 +290,48 @@ export function ResultsView({
                   />
                 ))}
               </div>
-            </section>
-          );
-        })}
-
-        {results.later_round_count > 0 ? (
-          <section className="mb-10 mt-2">
-            <div className="mb-[18px] flex flex-wrap items-center gap-[14px]">
-              <span className="inline-flex items-center gap-2 rounded-full bg-[#f3eefe] px-[15px] py-[7px] text-sm font-bold text-[#7a5cc4]">
-                <span className="h-[9px] w-[9px] rounded-full bg-[#7a5cc4]" />
-                Just above your Z-score
-              </span>
-              <span className="text-sm font-semibold text-[#9aa7be]">
-                {results.later_round_count} programme{results.later_round_count === 1 ? "" : "s"}
-              </span>
-              <span className="flex-1 text-sm text-[#9aa7be]">
-                within +{results.later_round_margin.toFixed(4)} of your score
-              </span>
-            </div>
-            <p className="mb-4 max-w-[680px] text-sm leading-[1.5] text-[#7c89a0]">
-              Your Z-score is below these cutoffs — but in past years, seats freed up after the
-              first round of UGC selections have sometimes admitted students in later rounds.
-              Not guaranteed and not an eligibility promise: keep them on your radar when filling
-              your application order.
-            </p>
-            <div className="flex flex-col gap-2">
-              {results.later_round.map((it) => (
-                <div
-                  key={it.course_code + it.university_code}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#e9e2f8] bg-white px-5 py-3 text-sm"
-                >
-                  <span className="font-medium">
-                    {it.course_name}
-                    {it.requires_aptitude_test ? (
-                      <span className="ml-2 rounded-full bg-[#fdf3e4] px-2 py-[2px] text-[11.5px] font-semibold text-[#a1691f]">
-                        aptitude test
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="flex items-center gap-3 tabular-nums">
-                    <span className="text-[#9aa7be]">cutoff {it.cutoff_z_score.toFixed(4)}</span>
-                    <span className="rounded-full bg-[#f3eefe] px-2 py-[2px] text-[12px] font-semibold text-[#7a5cc4]">
-                      +{it.gap_above.toFixed(4)} above you
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
+            )}
           </section>
-        ) : null}
+        ) : (
+          <section className="mb-10">
+            <p className="mb-4 max-w-[680px] text-sm leading-[1.5] text-[#7c89a0]">
+              These cutoffs are <strong>above your Z-score</strong> (within +
+              {results.later_round_margin.toFixed(2)}). In past years, seats freed up after the
+              first round of UGC selections have admitted students to such courses in the later
+              selection rounds — so they can still be worth listing in your application order.
+              Not guaranteed, and not an eligibility promise.
+            </p>
+            {results.later_round_count === 0 ? (
+              <p className="rounded-xl border border-dashed border-[#e3e9f2] bg-white px-5 py-6 text-sm text-[#9aa7be]">
+                No courses sit within +{results.later_round_margin.toFixed(2)} of your score.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {results.later_round.map((it) => (
+                  <div
+                    key={it.course_code + it.university_code}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#f0dbe1] bg-white px-5 py-3 text-sm"
+                  >
+                    <span className="min-w-0 font-medium">
+                      {it.course_name}
+                      {it.requires_aptitude_test ? (
+                        <span className="ml-2 rounded-full bg-[#fdf3e4] px-2 py-[2px] text-[11.5px] font-semibold text-[#a1691f]">
+                          aptitude test
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="flex items-center gap-3 tabular-nums">
+                      <span className="text-[#9aa7be]">cutoff {it.cutoff_z_score.toFixed(4)}</span>
+                      <span className="rounded-full bg-[#fbe9ed] px-2 py-[2px] text-[12px] font-semibold text-[#b4485f]">
+                        +{it.gap_above.toFixed(4)} above you
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {results.also_offered_no_cutoff_count > 0 ? (
           <section className="mt-4">

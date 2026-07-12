@@ -21,15 +21,19 @@ BASE = {
 }
 
 
-async def test_normal_mode_ranks_by_zmargin(client: AsyncClient):
+async def test_normal_mode_ranks_by_cutoff_descending(client: AsyncClient):
+    # User decision 2026-07-13: with no preferences the student is asking
+    # "what's the highest course I can get?" — normal mode serves the ladder,
+    # highest cutoff first. (Preference mode keeps the personalised score
+    # order — pinned in test_preference_mode_activates_university.)
     r = await client.post("/api/v1/recommendations", json=BASE)
     assert r.status_code == 200, r.text
     b = r.json()
     assert b["mode"] == "normal"
     assert b["eligible_count"] >= 1
     assert len(b["recommendations"]) >= 1
-    scores = [x["total_score"] for x in b["recommendations"]]
-    assert scores == sorted(scores, reverse=True)  # ranked high -> low
+    cutoffs = [x["cutoff_z_score"] for x in b["recommendations"]]
+    assert cutoffs == sorted(cutoffs, reverse=True)  # the ladder: high -> low
     # With no student preferences the mode stays "normal", but per the scoring
     # design (core/scoring/engine.py) `industry` is ALWAYS active when a course
     # carries industry tags (pure market-demand signal) — so the breakdown is

@@ -338,8 +338,9 @@ async def evaluate_eligibility(
         results=results,
         later_round_margin=settings.later_round_z_margin,
         later_round_count=len(later_round),
-        # closest miss first — the most actionable for the student
-        later_round=sorted(later_round, key=lambda i: i.gap_above),
+        # highest cutoff first — every student-facing group orders
+        # higher -> lower (user decision 2026-07-13)
+        later_round=sorted(later_round, key=lambda i: (-i.cutoff_z_score, i.course_code)),
     )
 
     latency_ms = int((time.perf_counter() - started) * 1000)
