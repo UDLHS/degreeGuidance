@@ -188,6 +188,32 @@ def _sanity_anchor_note():
     pass
 
 
+async def test_requested_year_without_data_falls_back_to_latest(db_session: AsyncSession):
+    """A named exam_year with NO promoted rows must not produce a ghost-empty
+    'verified YYYY' result (a browser can remember a year an admin later
+    re-labeled away — happened in prod 2026-07-12). The engine serves the
+    freshest year instead and says so."""
+    from core.eligibility.engine import _get_max_year, evaluate_eligibility
+    from core.schemas.eligibility import EligibilityRequest
+
+    max_year = await _get_max_year(db_session)
+    assert max_year is not None, "suite requires promoted cutoff data"
+    ghost_year = max_year + 1  # never has data: nothing newer than MAX exists
+
+    resp = await evaluate_eligibility(
+        db_session,
+        EligibilityRequest(
+            z_score=1.8, district_code="COLOMBO", stream_code="BIO_SCIENCE",
+            exam_year=ghost_year, subjects=_STREAM_SUBJECTS["BIO_SCIENCE"],
+        ),
+    )
+    assert resp.exam_year_used == max_year, "must fall back to the freshest year"
+    assert resp.eligible_count > 0, "fallback must serve real data, not an empty year"
+    assert resp.confidence_message is not None
+    assert str(ghost_year) in resp.confidence_message
+    assert str(max_year) in resp.confidence_message
+
+
 async def test_001A_is_bio_science_eligible(db_session: AsyncSession):
     """Guard for the 001A anchors: Medicine must be a BIO_SCIENCE course."""
     found = (
@@ -220,7 +246,19 @@ async def test_eligibility_case(case: dict, db_session: AsyncSession):
     )
     resp = await evaluate_eligibility(db_session, req)
 
-    used_year = exam_year if exam_year is not None else await _max_year(db_session)
+    # Mirror of the engine's year rule: a named year is honoured only if it
+    # has promoted rows; otherwise the engine serves the freshest year (with
+    # a note) instead of a ghost-empty result.
+    max_year = await _max_year(db_session)
+    used_year = exam_year if exam_year is not None else max_year
+    if exam_year is not None and not (
+        await db_session.execute(
+            text("SELECT 1 FROM z_score_cutoffs WHERE year = :y LIMIT 1"),
+            {"y": exam_year},
+        )
+    ).first():
+        used_year = max_year
+    assert resp.exam_year_used == used_year
     by_code = {r.course_code: r for r in resp.results}
 
     # ---- count arithmetic ----
@@ -243,25 +281,26 @@ async def test_eligibility_case(case: dict, db_session: AsyncSession):
             assert r.status == "eligible"
 
     # ---- confidence tier formula ----
-    assert resp.confidence_tier == _expected_tier(await _max_year(db_session), used_year)
+    assert resp.confidence_tier == _expected_tier(max_year, used_year)
 
     # ---- cross-check against the independent reference (THE oracle) ----
-    # (skip only for missing-year cases, which the engine returns empty by design)
-    if not pins.get("expect_empty"):
-        expected = await _reference(db_session, z, district, stream, used_year, subjects)
-        assert set(by_code) == set(expected), (
-            f"set mismatch: only-engine={set(by_code) - set(expected)}, "
-            f"only-ref={set(expected) - set(by_code)}"
-        )
-        for code, exp in expected.items():
-            got = by_code[code]
-            assert got.cutoff_z_score == pytest.approx(exp["cutoff"], abs=1e-6)
-            assert got.status == exp["status"]
-            assert got.is_marginal == exp["is_marginal"]
+    # (fallback cases resolve to the freshest year, so the oracle applies too)
+    expected = await _reference(db_session, z, district, stream, used_year, subjects)
+    assert set(by_code) == set(expected), (
+        f"set mismatch: only-engine={set(by_code) - set(expected)}, "
+        f"only-ref={set(expected) - set(by_code)}"
+    )
+    for code, exp in expected.items():
+        got = by_code[code]
+        assert got.cutoff_z_score == pytest.approx(exp["cutoff"], abs=1e-6)
+        assert got.status == exp["status"]
+        assert got.is_marginal == exp["is_marginal"]
 
     # ---- explicit per-case pins ----
-    if pins.get("expect_empty"):
-        assert resp.total_count == 0, "missing-year case should return no rows (no fallback)"
+    if pins.get("expect_fallback"):
+        assert exam_year is not None and used_year == max_year != exam_year
+        assert resp.total_count > 0, "fallback must serve the freshest year's data"
+        assert resp.confidence_message and str(exam_year) in resp.confidence_message
     if "expect_tier" in pins:
         assert resp.confidence_tier == pins["expect_tier"]
     for inc in pins.get("includes", []):

@@ -120,6 +120,9 @@ cases:
     stream: ARTS
   assert:
     cross_check_only: true
+# A named year with no promoted rows must NOT return a ghost-empty result:
+# the engine serves the freshest year with an explanatory note (a browser can
+# remember a year an admin later re-labeled away — prod incident 2026-07-12).
 - id: missing_year_future
   category: missing_year_fallback
   input:
@@ -128,7 +131,7 @@ cases:
     stream: BIO_SCIENCE
     exam_year: 2099
   assert:
-    expect_empty: true
+    expect_fallback: true
 - id: missing_year_past
   category: missing_year_fallback
   input:
@@ -137,7 +140,7 @@ cases:
     stream: BIO_SCIENCE
     exam_year: 2019
   assert:
-    expect_empty: true
+    expect_fallback: true
 - id: tier_current_default
   category: confidence_tier
   input:

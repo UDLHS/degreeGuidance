@@ -123,6 +123,19 @@ export function GuidanceFlow() {
     }
   }, []);
 
+  // A remembered year must still exist on the server: if an admin re-labels
+  // or removes a dataset, a browser that saved that year would otherwise keep
+  // requesting it forever and stare at a ghost-empty "verified YYYY" view.
+  // Drop it to the engine default (latest) and, if stale results are on
+  // screen, re-run against the default so the view self-heals.
+  useEffect(() => {
+    if (examYear === null || years.length === 0) return;
+    if (years.some((y) => y.year === examYear)) return;
+    setExamYear(null);
+    if (results !== null) void submit(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot heal on years arrival
+  }, [years, examYear]);
+
   const examStreams = useMemo(
     () => (reference?.streams ?? []).filter((s) => s.code !== "ICT"),
     [reference],
@@ -134,12 +147,13 @@ export function GuidanceFlow() {
     );
   }
 
-  async function submit(yearOverride?: number) {
+  async function submit(yearOverride?: number | null) {
     const filledSubjects = subjects.filter((s): s is SubjectInput => s !== null);
     if (!districtCode || !streamCode || filledSubjects.length !== 3) return;
     setLoading(true);
     setSubmitError(null);
-    const year = yearOverride ?? examYear;
+    // undefined = keep the current selection; null = force the engine default
+    const year = yearOverride === undefined ? examYear : yearOverride;
     const payload: RecommendationRequest = {
       z_score: zScore,
       district_code: districtCode,

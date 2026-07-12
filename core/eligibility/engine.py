@@ -177,6 +177,15 @@ async def _get_max_year(session: AsyncSession) -> int | None:
     return int(row.max_year) if row and row.max_year is not None else None
 
 
+async def _year_has_data(session: AsyncSession, year: int) -> bool:
+    row = (
+        await session.execute(
+            text("SELECT 1 FROM z_score_cutoffs WHERE year = :y LIMIT 1"), {"y": year}
+        )
+    ).first()
+    return row is not None
+
+
 def _confidence(max_year: int | None, used_year: int) -> tuple[str, str | None]:
     """Tier + optional caveat message based on how stale the served year is."""
     if max_year is None:
@@ -203,8 +212,24 @@ async def evaluate_eligibility(
     stream_id = await _resolve_stream_id(session, req.stream_code)
 
     max_year = await _get_max_year(session)
-    # Default to the freshest year we have; if the caller named a year, honour it.
+    # Default to the freshest year we have. A NAMED year is honoured only if
+    # it actually has promoted data: a stale year (saved in a student's
+    # browser before an admin re-labeled or removed that dataset) must not
+    # produce a ghost-empty "verified YYYY" result. Fall back to the freshest
+    # year and say so instead.
     used_year = req.exam_year if req.exam_year is not None else max_year
+    fallback_note: str | None = None
+    if (
+        req.exam_year is not None
+        and max_year is not None
+        and req.exam_year != max_year
+        and not await _year_has_data(session, req.exam_year)
+    ):
+        used_year = max_year
+        fallback_note = (
+            f"Cutoffs for {req.exam_year} aren't published on this platform; "
+            f"showing the latest available year ({max_year}) instead."
+        )
     if used_year is None:
         # z_score_cutoffs is empty (degenerate). Return an empty, honest result.
         used_year = req.exam_year or 0
@@ -266,6 +291,8 @@ async def evaluate_eligibility(
         )
 
     tier, message = _confidence(max_year, used_year)
+    if fallback_note is not None:
+        message = fallback_note if message is None else f"{fallback_note} {message}"
 
     response = EligibilityResponse(
         exam_year_used=used_year,
