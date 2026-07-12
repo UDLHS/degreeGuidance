@@ -48,6 +48,31 @@ class Factsheet(Base):
     )
 
 
+class Article(Base):
+    """Admin-authored knowledge beyond courses (Phase 8.6) — aptitude-test
+    guides, UGC procedures, scholarship rules, deadlines. Indexed into the
+    chat agent's knowledge base through the SAME chunk→embed machinery as
+    factsheets (source_type='article'); content_hash vs the indexed
+    document_sources.content_hash is the staleness signal."""
+
+    __tablename__ = "articles"
+
+    article_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DocumentSource(Base):
     __tablename__ = "document_sources"
 

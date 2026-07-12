@@ -134,6 +134,8 @@ export default function KnowledgePage() {
         </p>
       ) : null}
 
+      <ArticlesPanel onChanged={load} />
+
       <div className="space-y-1.5">
         {data?.items.map((s) => (
           <div key={s.source_id} className="rounded-lg border">
@@ -195,6 +197,171 @@ export default function KnowledgePage() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Articles (Phase 8.6) — admin-authored knowledge beyond courses ───────────
+
+type ArticleItem = {
+  article_id: number;
+  title: string;
+  version: number;
+  updated_at: string;
+  index_status: "indexed" | "stale" | "never_indexed";
+};
+
+function ArticlesPanel({ onChanged }: { onChanged: () => void }) {
+  const [items, setItems] = useState<ArticleItem[]>([]);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [panelMsg, setPanelMsg] = useState<string | null>(null);
+
+  const loadArticles = useCallback(async () => {
+    const res = await fetch("/api/bff/admin/articles", { cache: "no-store" });
+    if (res.ok) setItems((await res.json()).items ?? []);
+  }, []);
+
+  useEffect(() => {
+    loadArticles();
+  }, [loadArticles]);
+
+  function openNew() {
+    setEditId(null);
+    setTitle("");
+    setContent("");
+    setPanelMsg(null);
+    setEditorOpen(true);
+  }
+
+  async function openExisting(id: number) {
+    const res = await fetch(`/api/bff/admin/articles/${id}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const d = await res.json();
+    setEditId(id);
+    setTitle(d.title);
+    setContent(d.content);
+    setPanelMsg(null);
+    setEditorOpen(true);
+  }
+
+  async function save() {
+    setSaving(true);
+    const res = await fetch(
+      editId === null ? "/api/bff/admin/articles" : `/api/bff/admin/articles/${editId}`,
+      {
+        method: editId === null ? "POST" : "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, content }),
+      },
+    );
+    setSaving(false);
+    if (res.ok) {
+      setEditorOpen(false);
+      setPanelMsg("Saved — re-embedding queued; the advisor picks it up in about a minute.");
+      loadArticles();
+      onChanged();
+    } else {
+      const d = await res.json().catch(() => null);
+      setPanelMsg(typeof d?.detail === "string" ? d.detail : `Save failed (${res.status}).`);
+    }
+  }
+
+  async function remove(id: number) {
+    if (!confirm("Delete this article? Its knowledge-base entries are removed immediately."))
+      return;
+    const res = await fetch(`/api/bff/admin/articles/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setPanelMsg("Article deleted (index cleaned).");
+      loadArticles();
+      onChanged();
+    } else {
+      setPanelMsg(`Delete failed (${res.status}).`);
+    }
+  }
+
+  const STATUS_BADGE: Record<ArticleItem["index_status"], string> = {
+    indexed: "bg-green-100 text-green-800",
+    stale: "bg-amber-100 text-amber-800",
+    never_indexed: "bg-zinc-200 text-zinc-600",
+  };
+
+  return (
+    <div className="rounded-lg border p-4">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Articles — knowledge beyond courses</p>
+        <Button size="sm" onClick={openNew}>
+          New article
+        </Button>
+      </div>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Aptitude-test guides, UGC procedures, scholarship rules, deadlines… anything the AI
+        advisor should know that isn&apos;t a course factsheet. Saving re-embeds automatically.
+      </p>
+      {panelMsg ? <p className="mb-2 text-xs text-green-700">{panelMsg}</p> : null}
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No articles yet.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((a) => (
+            <div
+              key={a.article_id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
+            >
+              <button
+                onClick={() => openExisting(a.article_id)}
+                className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
+              >
+                {a.title}
+              </button>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>v{a.version}</span>
+                <span>{new Date(a.updated_at).toLocaleDateString()}</span>
+                <span
+                  className={cn(
+                    "rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                    STATUS_BADGE[a.index_status],
+                  )}
+                >
+                  {a.index_status.replace("_", " ")}
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => remove(a.article_id)}>
+                  Delete
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editorOpen ? (
+        <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-3">
+          <p className="text-sm font-semibold">{editId === null ? "New article" : "Edit article"}</p>
+          <input
+            className="w-full rounded-md border px-3 py-1.5 text-sm"
+            placeholder="Title, e.g. Aptitude tests — how they work"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <textarea
+            className="h-64 w-full rounded-md border px-3 py-2 font-mono text-xs"
+            placeholder={"Markdown. Use ## section headings — each becomes one retrieval chunk."}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setEditorOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={save} disabled={saving || !title.trim() || !content.trim()}>
+              {saving ? "Saving…" : "Save & re-embed"}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

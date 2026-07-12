@@ -42,6 +42,7 @@ CHAIN: list[tuple[str, str, str]] = [
     # inserts below (the generated literal INSERTs hit a quoting edge).
     ("e75434db887c", "093c47d4fb58", "41_e75434db887c_factsheets_ddl.sql"),
     ("7fa2c4d81b3e", "e75434db887c", "42_7fa2c4d81b3e_ingestion_artifacts.sql"),
+    ("c5d8e2f91a47", "7fa2c4d81b3e", "43_c5d8e2f91a47_articles.sql"),
 ]
 
 FACTSHEETS_DIR = Path(__file__).resolve().parent.parent / "content" / "factsheets"
@@ -131,6 +132,7 @@ async def main(dry_run: bool) -> int:
             "agent_configs",
             "factsheets",
             "ingestion_artifacts",
+            "articles",
         ):
             n = await conn.fetchval(
                 "SELECT count(*) FROM information_schema.tables WHERE table_name = $1", tbl

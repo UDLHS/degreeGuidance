@@ -14,6 +14,7 @@ from core.config import settings
 from apps.api.routers import (
     admin_agent,
     admin_aliases,
+    admin_articles,
     admin_conversations,
     admin_courses,
     admin_cutoffs,
@@ -60,6 +61,7 @@ app.include_router(reference.router)
 app.include_router(auth.router)
 app.include_router(admin_agent.router)
 app.include_router(admin_aliases.router)
+app.include_router(admin_articles.router)
 app.include_router(admin_conversations.router)
 app.include_router(admin_courses.router)
 app.include_router(admin_cutoffs.router)

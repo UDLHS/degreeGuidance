@@ -42,3 +42,12 @@ async def enqueue_index_factsheet(*, course_number: str) -> None:
         await pool.enqueue_job("index_factsheet_job", course_number=course_number)
     finally:
         await pool.aclose()
+
+
+async def enqueue_index_article(*, article_id: int) -> None:
+    """Enqueue a single-article reindex (admin Articles save path — Phase 8.6)."""
+    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    try:
+        await pool.enqueue_job("index_article_job", article_id=article_id)
+    finally:
+        await pool.aclose()
