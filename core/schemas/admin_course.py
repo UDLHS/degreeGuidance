@@ -109,6 +109,30 @@ class CourseStreamsOut(BaseModel):
     warning: str | None = None
 
 
+class OnboardingItem(BaseModel):
+    """Live completeness picture for one course that still needs admin work
+    (Phase 8.2). Computed fresh from the data every call — year-agnostic, so
+    every future book's new courses surface automatically."""
+
+    course_code: str
+    course_number: str | None
+    name_en: str
+    university_code: str | None
+    university_name: str | None
+    is_active: bool
+    stream_count: int
+    has_latest_cutoff: bool
+    has_factsheet: bool
+    has_subject_rule: bool  # informational — no rule = ungated by design
+    blockers: list[str]
+
+
+class OnboardingResponse(BaseModel):
+    latest_year: int | None
+    total: int
+    items: list[OnboardingItem]
+
+
 class CourseListResponse(BaseModel):
     total: int
     items: list[CourseOut]

@@ -199,9 +199,13 @@ async def archive_run_artifacts(
     return written
 
 
-async def build_promote_checklist(db: AsyncSession, year: int) -> dict:
+async def build_promote_checklist(
+    db: AsyncSession, year: int, run_id: str | None = None
+) -> dict:
     """Post-promote review card: everything the admin must eyeball, computed
-    fresh from the DB (year-agnostic — future uploads change numbers, not code)."""
+    fresh from the DB (year-agnostic — future uploads change numbers, not code).
+    With run_id, also reports how many of THIS book's newly-added courses are
+    fully onboarded (active + streams + factsheet) — Phase 8.3."""
     gaps = await cutoff_coverage_gaps(db, year)
     overrides = (
         await db.execute(
@@ -217,7 +221,7 @@ async def build_promote_checklist(db: AsyncSession, year: int) -> dict:
     latest = (
         await db.execute(text("SELECT max(year) FROM z_score_cutoffs"))
     ).scalar()
-    return {
+    checklist = {
         "promoted_year": year,
         "students_now_see": latest,
         "is_default_year": latest == year,
@@ -226,6 +230,48 @@ async def build_promote_checklist(db: AsyncSession, year: int) -> dict:
         "stream_override_rows": overrides,
         "codeless_rows": codeless,
     }
+
+    if run_id is not None:
+        added = [
+            r.course_code
+            for r in (
+                await db.execute(
+                    text(
+                        "SELECT course_code FROM handbook_changes "
+                        "WHERE run_id = :r AND change_type = 'course_added'"
+                    ),
+                    {"r": run_id},
+                )
+            ).all()
+        ]
+        pending: list[str] = []
+        for code in added:
+            row = (
+                await db.execute(
+                    text(
+                        "SELECT c.is_active, "
+                        "(SELECT count(*) FROM course_stream_eligibility cse "
+                        " WHERE cse.course_code = c.course_code) AS stream_count, "
+                        "EXISTS (SELECT 1 FROM factsheets f "
+                        " WHERE f.course_number = c.course_number) AS has_factsheet "
+                        "FROM courses c WHERE c.course_code = :c"
+                    ),
+                    {"c": code},
+                )
+            ).first()
+            onboarded = (
+                row is not None
+                and bool(row.is_active)
+                and int(row.stream_count) > 0
+                and bool(row.has_factsheet)
+            )
+            if not onboarded:
+                pending.append(code)
+        checklist["new_courses_total"] = len(added)
+        checklist["new_courses_onboarded"] = len(added) - len(pending)
+        checklist["new_courses_pending"] = pending[:15]
+
+    return checklist
 
 
 async def _step4_on_bytes(content: bytes, exam_year: int, triggered_by: str) -> dict:
@@ -502,8 +548,9 @@ async def promote_ingestion(
 
     # Permanent per-year archive (Phase 7.3): raw PDF + final CSV + artifacts.
     archived = snapshot_paths + await archive_run_artifacts(db, str(run_id), exam_year, tag)
-    # Post-promote checklist (Phase 7.4): what the admin must eyeball now.
-    checklist = await build_promote_checklist(db, exam_year)
+    # Post-promote checklist (Phase 7.4): what the admin must eyeball now
+    # (incl. Phase 8.3's "new courses: X of Y onboarded" for this run's book).
+    checklist = await build_promote_checklist(db, exam_year, run_id=str(run_id))
     checklist["archived"] = archived
 
     # link the extraction run to the produced zscore run

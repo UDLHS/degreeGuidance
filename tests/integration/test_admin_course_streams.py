@@ -157,6 +157,113 @@ async def test_zero_stream_activation_warns(
     assert r.status_code == 200 and r.json()["warning"] is None
 
 
+async def test_onboarding_panel_tracks_completeness(
+    client: AsyncClient, admin_token: str, db_session: AsyncSession
+):
+    """Phase 8.2/8.3: a fresh stub shows every blocker; completing the steps
+    clears it from the panel. Computed live — nothing stored."""
+    await _create_stub(client, admin_token, db_session)
+
+    r = await client.get("/api/admin/courses/onboarding", headers=_auth(admin_token))
+    assert r.status_code == 200
+    body = r.json()
+    entry = next((i for i in body["items"] if i["course_code"] == COURSE), None)
+    assert entry is not None, "fresh stub must appear in the onboarding panel"
+    assert entry["is_active"] is False
+    assert entry["stream_count"] == 0
+    assert entry["has_factsheet"] is False  # course number 997 has no factsheet
+    assert len(entry["blockers"]) == 3
+    # most-broken first: our 3-blocker stub sorts at the very top
+    assert body["items"][0]["course_code"] == COURSE
+
+    # complete two of three steps -> still listed, fewer blockers
+    await client.put(
+        f"/api/admin/courses/{COURSE}/streams", headers=_auth(admin_token),
+        json={"stream_codes": ["PHYSICAL_SCIENCE"]},
+    )
+    await client.patch(
+        f"/api/admin/courses/{COURSE}", headers=_auth(admin_token), json={"is_active": True}
+    )
+    r = await client.get("/api/admin/courses/onboarding", headers=_auth(admin_token))
+    entry = next((i for i in r.json()["items"] if i["course_code"] == COURSE), None)
+    assert entry is not None and entry["blockers"] == [
+        "no factsheet — the AI advisor knows nothing about it"
+    ]
+
+    # factsheet completes the onboarding -> gone from the panel
+    await db_session.execute(
+        text(
+            "INSERT INTO factsheets (course_number, content, content_hash) "
+            "VALUES ('997', '# Sentinel', 'deadbeef997') ON CONFLICT DO NOTHING"
+        )
+    )
+    await db_session.commit()
+    try:
+        r = await client.get("/api/admin/courses/onboarding", headers=_auth(admin_token))
+        assert all(i["course_code"] != COURSE for i in r.json()["items"])
+    finally:
+        await db_session.execute(text("DELETE FROM factsheets WHERE course_number = '997'"))
+        await db_session.commit()
+
+
+async def test_promote_checklist_counts_new_courses(
+    client: AsyncClient, admin_token: str, db_session: AsyncSession
+):
+    """Phase 8.3: the checklist reports this book's course_added stubs as
+    X of Y onboarded, listing the pending codes."""
+    import uuid as _uuid
+
+    from apps.api.routers.admin_ingestions import build_promote_checklist
+
+    await _create_stub(client, admin_token, db_session)
+    rid = _uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO ingestion_runs (run_id, run_type, year, status) "
+            "VALUES (:r, 'pdf_extraction', :y, 'success')"
+        ),
+        {"r": rid, "y": SENTINEL_YEAR},
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO handbook_changes (run_id, change_type, course_code, status) "
+            "VALUES (:r, 'course_added', :c, 'applied')"
+        ),
+        {"r": rid, "c": COURSE},
+    )
+    await db_session.commit()
+    try:
+        checklist = await build_promote_checklist(db_session, SENTINEL_YEAR, run_id=str(rid))
+        assert checklist["new_courses_total"] == 1
+        assert checklist["new_courses_onboarded"] == 0
+        assert checklist["new_courses_pending"] == [COURSE]
+
+        # onboard fully -> counts flip
+        await client.put(
+            f"/api/admin/courses/{COURSE}/streams", headers=_auth(admin_token),
+            json={"stream_codes": ["PHYSICAL_SCIENCE"]},
+        )
+        await client.patch(
+            f"/api/admin/courses/{COURSE}", headers=_auth(admin_token), json={"is_active": True}
+        )
+        await db_session.execute(
+            text(
+                "INSERT INTO factsheets (course_number, content, content_hash) "
+                "VALUES ('997', '# Sentinel', 'deadbeef997b') ON CONFLICT DO NOTHING"
+            )
+        )
+        await db_session.commit()
+        checklist = await build_promote_checklist(db_session, SENTINEL_YEAR, run_id=str(rid))
+        assert checklist["new_courses_onboarded"] == 1
+        assert checklist["new_courses_pending"] == []
+    finally:
+        await db_session.execute(text("DELETE FROM factsheets WHERE course_number = '997'"))
+        await db_session.execute(
+            text("DELETE FROM ingestion_runs WHERE run_id = :r"), {"r": rid}
+        )
+        await db_session.commit()
+
+
 async def test_full_onboarding_lifecycle_reaches_students(
     client: AsyncClient, admin_token: str, db_session: AsyncSession
 ):

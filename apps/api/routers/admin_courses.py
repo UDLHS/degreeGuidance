@@ -24,6 +24,8 @@ from core.schemas.admin_course import (
     CourseStreamsOut,
     CourseStreamsUpdate,
     CourseUpdate,
+    OnboardingItem,
+    OnboardingResponse,
 )
 
 router = APIRouter(
@@ -200,6 +202,74 @@ async def update_course(
     if out.is_active and not await _stream_codes_for(db, code):
         out.warning = _ZERO_STREAM_WARNING
     return out
+
+
+# ── Needs-onboarding panel (Phase 8.2/8.3) ───────────────────────────────────
+# One live query over the whole catalog: which courses still need admin work
+# before students can (or should) see them. Derived from data every call —
+# never stored, never year-specific — so each future book's new courses
+# surface here automatically. "Slots = visible absences, never auto-created
+# placeholder rows" (plan Phase 8 design principle).
+
+_ONBOARDING_QUERY = text(
+    """
+    WITH latest AS (SELECT max(year) AS y FROM z_score_cutoffs)
+    SELECT
+      c.course_code, c.course_number, c.name_en, c.is_active,
+      u.code AS university_code, u.name_en AS university_name,
+      (SELECT count(*) FROM course_stream_eligibility cse
+        WHERE cse.course_code = c.course_code)                    AS stream_count,
+      EXISTS (SELECT 1 FROM z_score_cutoffs z, latest
+               WHERE z.course_code = c.course_code AND z.year = latest.y) AS has_latest_cutoff,
+      EXISTS (SELECT 1 FROM factsheets f
+               WHERE f.course_number = c.course_number)           AS has_factsheet,
+      EXISTS (SELECT 1 FROM course_requirements r
+               WHERE r.course_number = c.course_number
+                 AND r.exam_year IS NULL)                         AS has_subject_rule
+    FROM courses c
+    LEFT JOIN universities u ON u.university_id = c.university_id
+    ORDER BY c.course_code
+    """
+)
+
+
+def _blockers(row) -> list[str]:
+    out: list[str] = []
+    if not row.is_active:
+        out.append("inactive — activate when ready (or leave retired)")
+    if row.stream_count == 0:
+        out.append("no eligible streams — invisible to every student")
+    if not row.has_factsheet:
+        out.append("no factsheet — the AI advisor knows nothing about it")
+    return out
+
+
+@router.get("/courses/onboarding", response_model=OnboardingResponse)
+async def onboarding_status(db: AsyncSession = Depends(get_db)) -> OnboardingResponse:
+    latest = (
+        await db.execute(text("SELECT max(year) FROM z_score_cutoffs"))
+    ).scalar()
+    rows = (await db.execute(_ONBOARDING_QUERY)).all()
+    items = [
+        OnboardingItem(
+            course_code=r.course_code,
+            course_number=r.course_number,
+            name_en=r.name_en,
+            university_code=r.university_code,
+            university_name=r.university_name,
+            is_active=bool(r.is_active),
+            stream_count=int(r.stream_count),
+            has_latest_cutoff=bool(r.has_latest_cutoff),
+            has_factsheet=bool(r.has_factsheet),
+            has_subject_rule=bool(r.has_subject_rule),
+            blockers=_blockers(r),
+        )
+        for r in rows
+        if _blockers(r)  # the panel lists only courses that need something
+    ]
+    # most-broken first: courses students can't see at all lead the list
+    items.sort(key=lambda i: (-len(i.blockers), i.course_code))
+    return OnboardingResponse(latest_year=latest, total=len(items), items=items)
 
 
 # ── Stream eligibility (Phase 8.1) ───────────────────────────────────────────

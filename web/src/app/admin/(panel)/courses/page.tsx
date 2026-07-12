@@ -92,6 +92,18 @@ export default function CoursesPage() {
   const [streamCodes, setStreamCodes] = useState<string[]>([]);
   const [origStreams, setOrigStreams] = useState<string[]>([]);
   const [warnMsg, setWarnMsg] = useState<string | null>(null);
+  // Phase 8.3 — live "needs onboarding" panel (derived from data every load)
+  type OnboardingItem = {
+    course_code: string;
+    course_number: string | null;
+    name_en: string;
+    university_code: string | null;
+    is_active: boolean;
+    stream_count: number;
+    has_factsheet: boolean;
+    blockers: string[];
+  };
+  const [onboarding, setOnboarding] = useState<OnboardingItem[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +121,12 @@ export default function CoursesPage() {
       setFetchError(`Failed to load courses (HTTP ${res.status}) — is the API running?`);
     }
     setLoading(false);
+    // refresh the onboarding panel alongside the table (it reflects the same edits)
+    const ob = await fetch("/api/bff/admin/courses/onboarding", { cache: "no-store" });
+    if (ob.ok) {
+      const d = await ob.json();
+      setOnboarding(d.items ?? []);
+    }
   }, [q, active, basis]);
 
   useEffect(() => {
@@ -317,6 +335,70 @@ export default function CoursesPage() {
         <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {fetchError}
         </p>
+      ) : null}
+
+      {onboarding.length > 0 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50/60 p-4">
+          <p className="mb-1 text-sm font-semibold text-amber-900">
+            Needs onboarding ({onboarding.length})
+          </p>
+          <p className="mb-3 text-xs text-amber-800/80">
+            Computed live from the data — a course listed here is missing something before
+            students (or the AI advisor) can use it properly. New courses from future handbooks
+            appear here automatically.
+          </p>
+          <div className="space-y-2">
+            {onboarding.map((o) => (
+              <div
+                key={o.course_code}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-white px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <span className="font-mono text-xs">{o.course_code}</span>{" "}
+                  <span className="text-sm font-medium">{o.name_en}</span>{" "}
+                  <span className="text-xs text-muted-foreground">
+                    {o.university_code ?? ""}
+                  </span>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {o.blockers.map((b) => (
+                      <span
+                        key={b}
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                      >
+                        {b}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {!o.has_factsheet && o.course_number ? (
+                    <Button asChild variant="ghost" size="sm">
+                      <a href={`/admin/factsheets/${o.course_number}`}>Factsheet</a>
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      const res = await fetch(
+                        `/api/bff/admin/courses?q=${o.course_code}&limit=1`,
+                        { cache: "no-store" },
+                      );
+                      if (!res.ok) return;
+                      const d = await res.json();
+                      const c = (d.items ?? []).find(
+                        (x: Course) => x.course_code === o.course_code,
+                      );
+                      if (c) openEdit(c);
+                    }}
+                  >
+                    Complete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : null}
 
       <div className="rounded-lg border">

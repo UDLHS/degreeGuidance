@@ -82,6 +82,10 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
     stream_override_rows: number;
     codeless_rows: number;
     archived: string[];
+    // Phase 8.3 — this book's newly-added courses and their onboarding state
+    new_courses_total?: number;
+    new_courses_onboarded?: number;
+    new_courses_pending?: string[];
   } | null>(null);
 
   const load = useCallback(async () => {
@@ -295,6 +299,20 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
               ✅ {checklist.stream_override_rows} per-stream override cutoff(s) ·{" "}
               {checklist.codeless_rows} codeless cutoff(s) preserved.
             </p>
+            {(checklist.new_courses_total ?? 0) > 0 ? (
+              <p
+                className={cn(
+                  (checklist.new_courses_pending?.length ?? 0) > 0 && "text-amber-700",
+                )}
+              >
+                {(checklist.new_courses_pending?.length ?? 0) > 0 ? "⚠️" : "✅"} New courses in
+                this book: <strong>{checklist.new_courses_onboarded}</strong> of{" "}
+                <strong>{checklist.new_courses_total}</strong> fully onboarded
+                {checklist.new_courses_pending?.length
+                  ? ` — pending: ${checklist.new_courses_pending.join(", ")}. Finish them on the Courses page ("Needs onboarding").`
+                  : "."}
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Archived {checklist.archived.length} file(s): {checklist.archived.join(" · ") || "—"}
             </p>
