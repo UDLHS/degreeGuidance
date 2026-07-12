@@ -119,12 +119,19 @@ export function ResultsView({
     (byBucket[r.bucket] ??= []).push(r);
   }
 
+  // A run restored from localStorage may predate the later-rounds fields —
+  // never let a missing field crash the page (a mid-deploy student would hit
+  // exactly that). Defaults keep the tab honest: empty list, stated window.
+  const laterRound = results.later_round ?? [];
+  const laterRoundCount = results.later_round_count ?? laterRound.length;
+  const laterRoundMargin = results.later_round_margin ?? 0.15;
+
   // Tabs: default to the first group that has anything to show.
   const [tab, setTab] = useState<TabKey>("safe");
   useEffect(() => {
     const first =
       TAB_ORDER.find((k) =>
-        k === "ambitious" ? results.later_round_count > 0 : (byBucket[k]?.length ?? 0) > 0,
+        k === "ambitious" ? laterRoundCount > 0 : (byBucket[k]?.length ?? 0) > 0,
       ) ?? "safe";
     setTab(first);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,7 +252,7 @@ export function ResultsView({
           {TAB_ORDER.map((key) => {
             const meta = TAB_META[key];
             const count =
-              key === "ambitious" ? results.later_round_count : (byBucket[key]?.length ?? 0);
+              key === "ambitious" ? laterRoundCount : (byBucket[key]?.length ?? 0);
             const active = tab === key;
             return (
               <button
@@ -296,18 +303,18 @@ export function ResultsView({
           <section className="mb-10">
             <p className="mb-4 max-w-[680px] text-sm leading-[1.5] text-[#7c89a0]">
               These cutoffs are <strong>above your Z-score</strong> (within +
-              {results.later_round_margin.toFixed(2)}). In past years, seats freed up after the
+              {laterRoundMargin.toFixed(2)}). In past years, seats freed up after the
               first round of UGC selections have admitted students to such courses in the later
               selection rounds — so they can still be worth listing in your application order.
               Not guaranteed, and not an eligibility promise.
             </p>
-            {results.later_round_count === 0 ? (
+            {laterRoundCount === 0 ? (
               <p className="rounded-xl border border-dashed border-[#e3e9f2] bg-white px-5 py-6 text-sm text-[#9aa7be]">
-                No courses sit within +{results.later_round_margin.toFixed(2)} of your score.
+                No courses sit within +{laterRoundMargin.toFixed(2)} of your score.
               </p>
             ) : (
               <div className="flex flex-col gap-2">
-                {results.later_round.map((it) => (
+                {laterRound.map((it) => (
                   <div
                     key={it.course_code + it.university_code}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#f0dbe1] bg-white px-5 py-3 text-sm"

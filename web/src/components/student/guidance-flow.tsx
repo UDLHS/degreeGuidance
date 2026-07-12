@@ -107,7 +107,11 @@ export function GuidanceFlow() {
       const raw = localStorage.getItem(LAST_RUN_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
-      if (!saved?.results) return;
+      // Version gate: a run saved by an OLDER build may lack fields the
+      // current results view renders (a mid-deploy student crashed exactly
+      // this way on the later-rounds fields). Discard stale shapes — the
+      // student just re-runs the 5 steps once.
+      if (!saved?.results || saved.v !== 2) return;
       if (typeof saved.zScore === "number") setZScore(saved.zScore);
       setDistrictCode(saved.districtCode ?? null);
       setStreamCode(saved.streamCode ?? null);
@@ -187,7 +191,7 @@ export function GuidanceFlow() {
         localStorage.setItem(
           LAST_RUN_KEY,
           JSON.stringify({
-            v: 1,
+            v: 2,  // bump when the results shape changes (see restore gate)
             zScore,
             districtCode,
             streamCode,
