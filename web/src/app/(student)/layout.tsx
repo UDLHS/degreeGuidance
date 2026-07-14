@@ -18,15 +18,22 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         // @ts-expect-error -- CSS custom properties
         "--font-hanken": "'Hanken Grotesk', system-ui, sans-serif",
         "--font-newsreader": "'Newsreader', serif",
-        fontFamily: "var(--font-hanken)",
-        background: "#f3f6fb",
+        // Reskin typefaces: Spectral (serif headings) + Public Sans (body).
+        // The --dg-* colour tokens live in globals.css and follow the
+        // data-theme attribute the flow sets on <html>, so this wrapper
+        // themes with the shell instead of leaking a fixed light background.
+        "--font-spectral": "'Spectral', Georgia, serif",
+        "--font-public-sans": "'Public Sans', system-ui, sans-serif",
+        fontFamily: "var(--font-public-sans)",
+        background: "var(--dg-bg)",
+        color: "var(--dg-ink)",
         minHeight: "100vh",
       }}
     >
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       <link
-        href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Public+Sans:wght@400;500;600;700&family=Spectral:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap"
         rel="stylesheet"
       />
       {children}

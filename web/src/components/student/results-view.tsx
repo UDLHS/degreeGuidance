@@ -10,23 +10,24 @@ import type {
 
 type TabKey = "safe" | "consider" | "ambitious";
 
+// Band colours reference the --dg-* tokens so tabs adapt to light/dark.
 const TAB_META: Record<TabKey, { label: string; color: string; bg: string; desc: string }> = {
   safe: {
     label: "Safe",
-    color: "#0a7d54",
-    bg: "#e4f5ec",
+    color: "var(--dg-safe-fg)",
+    bg: "var(--dg-safe-bg)",
     desc: "You're comfortably above the cutoff — eligible with room to spare.",
   },
   consider: {
     label: "Consider",
-    color: "#b07407",
-    bg: "#fbf1da",
+    color: "var(--dg-con-fg)",
+    bg: "var(--dg-con-bg)",
     desc: "Eligible — your score clears the cutoff, some more narrowly than others.",
   },
   ambitious: {
     label: "Ambitious",
-    color: "#b4485f",
-    bg: "#fbe9ed",
+    color: "var(--dg-amb-fg)",
+    bg: "var(--dg-amb-bg)",
     desc: "Above your score — sometimes reached in the later UGC selection rounds.",
   },
 };
@@ -57,8 +58,10 @@ const DIMENSION_DESC: Record<string, string> = {
   industry:   "Job-market demand for this sector in Sri Lanka",
 };
 
+// Semantic category colours for the score-breakdown bars — kept distinct
+// (not themed) so each dimension stays recognisable across light/dark.
 const DIMENSION_COLOR: Record<string, string> = {
-  z_margin:   "#2b5fd0",   // blue
+  z_margin:   "#3b5bd0",   // blue
   university: "#0f9aa6",   // teal
   interest:   "#7a5cd6",   // purple
   career:     "#16a06b",   // green
@@ -161,11 +164,14 @@ export function ResultsView({
   const latestYear = availableYears.length ? availableYears[0] : viewedYear;
 
   return (
-    <main className="mx-auto w-full max-w-[1120px] flex-1 px-6">
-      <div className="py-11 pb-[120px]">
+    <main className="mx-auto w-full max-w-[1000px] flex-1 px-6">
+      <div className="py-9 pb-[120px]">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="mb-[14px] font-[family-name:var(--font-newsreader)] text-4xl font-medium leading-[1.12] tracking-[-.5px] sm:text-[42px]">
+            <h1
+              className="mb-[14px] text-4xl font-bold leading-[1.12] tracking-[-.5px] sm:text-[42px]"
+              style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}
+            >
               Your degree matches
             </h1>
             <div className="flex flex-wrap gap-[9px]">
@@ -173,8 +179,11 @@ export function ResultsView({
               <Pill label="District" value={districtName} />
               <Pill label="Stream" value={streamName} />
               {availableYears.length > 1 ? (
-                <label className="inline-flex items-center gap-[7px] rounded-full border border-[#e3e9f2] bg-white px-[15px] py-2 text-sm font-semibold">
-                  <span className="font-medium text-[#9aa7be]">Viewing</span>
+                <label
+                  className="inline-flex items-center gap-[7px] rounded-full px-[15px] py-2 text-sm font-semibold"
+                  style={{ background: "var(--dg-surface)", border: "1px solid var(--dg-border)" }}
+                >
+                  <span className="font-medium" style={{ color: "var(--dg-muted)" }}>Viewing</span>
                   <select
                     value={viewedYear}
                     disabled={yearLoading}
@@ -192,15 +201,15 @@ export function ResultsView({
                       </option>
                     ))}
                   </select>
-                  {yearLoading ? <span className="text-[#9aa7be]">…</span> : null}
+                  {yearLoading ? <span style={{ color: "var(--dg-muted)" }}>…</span> : null}
                 </label>
               ) : (
                 <Pill label="Cutoffs" value={String(viewedYear)} />
               )}
               <button
                 onClick={onEdit}
-                className="rounded-full border border-dashed border-[#c4cee0] px-[15px] py-2 text-sm font-semibold"
-                style={{ color: accent }}
+                className="rounded-full px-[15px] py-2 text-sm font-semibold"
+                style={{ border: "1px dashed var(--dg-border)", color: accent }}
               >
                 Edit answers
               </button>
@@ -209,19 +218,25 @@ export function ResultsView({
         </div>
 
         {viewedYear !== latestYear ? (
-          <p className="mb-4 max-w-[640px] rounded-xl bg-[#fbf1da] px-4 py-3 text-sm text-[#7a5500]">
+          <p
+            className="mb-4 max-w-[640px] rounded-xl px-4 py-3 text-sm"
+            style={{ background: "var(--dg-con-bg)", color: "var(--dg-con-fg)" }}
+          >
             You&apos;re viewing <strong>{viewedYear}</strong> cutoffs for reference. Z-scores are
             standardised per exam year and cutoffs shift every year — use this to understand
             trends, not as this year&apos;s answer.
             {results.confidence_message ? ` ${results.confidence_message}` : ""}
           </p>
         ) : results.confidence_message ? (
-          <p className="mb-4 max-w-[640px] rounded-xl bg-[#fbf1da] px-4 py-3 text-sm text-[#7a5500]">
+          <p
+            className="mb-4 max-w-[640px] rounded-xl px-4 py-3 text-sm"
+            style={{ background: "var(--dg-con-bg)", color: "var(--dg-con-fg)" }}
+          >
             {results.confidence_message}
           </p>
         ) : null}
 
-        <p className="mb-3 max-w-[640px] text-base leading-[1.55] text-[#5b6b85]">
+        <p className="mb-3 max-w-[640px] text-base leading-[1.55]" style={{ color: "var(--dg-ink)" }}>
           We found {results.recommendations.length} programme
           {results.recommendations.length === 1 ? "" : "s"} you&apos;re eligible for in{" "}
           {streamName} from {districtName}, based on the verified {results.exam_year_used}{" "}
@@ -231,13 +246,13 @@ export function ResultsView({
             : " Ranked by your preferences and Z-score margin."}
         </p>
 
-        <p className="mb-3 max-w-[640px] text-[12.5px] leading-[1.5] text-[#9aa7be]">
+        <p className="mb-3 max-w-[640px] text-[12.5px] leading-[1.5]" style={{ color: "var(--dg-muted)" }}>
           Guidance only — the final selection is made by the University Grants Commission.
           Always verify against the official UGC handbook before applying.
         </p>
 
         {results.conditional_count > 0 ? (
-          <p className="mb-8 max-w-[640px] text-sm text-[#7c89a0]">
+          <p className="mb-8 max-w-[640px] text-sm" style={{ color: "var(--dg-muted)" }}>
             {results.conditional_count} of these also require an aptitude or practical test —
             marked below.
           </p>
@@ -262,14 +277,14 @@ export function ResultsView({
                 style={
                   active
                     ? { color: meta.color, background: meta.bg, borderColor: meta.color }
-                    : { color: "#7c89a0", background: "#fff", borderColor: "#e3e9f2" }
+                    : { color: "var(--dg-muted)", background: "var(--dg-surface)", borderColor: "var(--dg-border)" }
                 }
               >
-                <span className="h-[9px] w-[9px] rounded-full" style={{ background: active ? meta.color : "#c4cee0" }} />
+                <span className="h-[9px] w-[9px] rounded-full" style={{ background: active ? meta.color : "var(--dg-border)" }} />
                 {meta.label}
                 <span
                   className="rounded-full px-[7px] py-[1px] text-[12px] tabular-nums"
-                  style={active ? { background: "#ffffffaa" } : { background: "#f1f4f9" }}
+                  style={active ? { background: "#ffffff55" } : { background: "var(--dg-surface2)" }}
                 >
                   {count}
                 </span>
@@ -280,9 +295,12 @@ export function ResultsView({
 
         {tab !== "ambitious" ? (
           <section className="mb-10">
-            <p className="mb-4 text-sm text-[#9aa7be]">{TAB_META[tab].desc}</p>
+            <p className="mb-4 text-sm" style={{ color: "var(--dg-muted)" }}>{TAB_META[tab].desc}</p>
             {(byBucket[tab]?.length ?? 0) === 0 ? (
-              <p className="rounded-xl border border-dashed border-[#e3e9f2] bg-white px-5 py-6 text-sm text-[#9aa7be]">
+              <p
+                className="rounded-xl px-5 py-6 text-sm"
+                style={{ border: "1px dashed var(--dg-border)", background: "var(--dg-surface)", color: "var(--dg-muted)" }}
+              >
                 Nothing in this group for your answers.
               </p>
             ) : (
@@ -301,7 +319,7 @@ export function ResultsView({
           </section>
         ) : (
           <section className="mb-10">
-            <p className="mb-4 max-w-[680px] text-sm leading-[1.5] text-[#7c89a0]">
+            <p className="mb-4 max-w-[680px] text-sm leading-[1.5]" style={{ color: "var(--dg-muted)" }}>
               These cutoffs are <strong>above your Z-score</strong> (within +
               {laterRoundMargin.toFixed(2)}). In past years, seats freed up after the
               first round of UGC selections have admitted students to such courses in the later
@@ -309,7 +327,10 @@ export function ResultsView({
               Not guaranteed, and not an eligibility promise.
             </p>
             {laterRoundCount === 0 ? (
-              <p className="rounded-xl border border-dashed border-[#e3e9f2] bg-white px-5 py-6 text-sm text-[#9aa7be]">
+              <p
+                className="rounded-xl px-5 py-6 text-sm"
+                style={{ border: "1px dashed var(--dg-border)", background: "var(--dg-surface)", color: "var(--dg-muted)" }}
+              >
                 No courses sit within +{laterRoundMargin.toFixed(2)} of your score.
               </p>
             ) : (
@@ -317,19 +338,26 @@ export function ResultsView({
                 {laterRound.map((it) => (
                   <div
                     key={it.course_code + it.university_code}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#f0dbe1] bg-white px-5 py-3 text-sm"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-5 py-3 text-sm"
+                    style={{ border: "1px solid var(--dg-amb-bd)", background: "var(--dg-surface)" }}
                   >
-                    <span className="min-w-0 font-medium">
+                    <span className="min-w-0 font-medium" style={{ color: "var(--dg-ink)" }}>
                       {it.course_name}
                       {it.requires_aptitude_test ? (
-                        <span className="ml-2 rounded-full bg-[#fdf3e4] px-2 py-[2px] text-[11.5px] font-semibold text-[#a1691f]">
+                        <span
+                          className="ml-2 rounded-full px-2 py-[2px] text-[11.5px] font-semibold"
+                          style={{ background: "var(--dg-con-bg)", color: "var(--dg-con-fg)" }}
+                        >
                           aptitude test
                         </span>
                       ) : null}
                     </span>
                     <span className="flex items-center gap-3 tabular-nums">
-                      <span className="text-[#9aa7be]">cutoff {it.cutoff_z_score.toFixed(4)}</span>
-                      <span className="rounded-full bg-[#fbe9ed] px-2 py-[2px] text-[12px] font-semibold text-[#b4485f]">
+                      <span style={{ color: "var(--dg-muted)" }}>cutoff {it.cutoff_z_score.toFixed(4)}</span>
+                      <span
+                        className="rounded-full px-2 py-[2px] text-[12px] font-semibold"
+                        style={{ background: "var(--dg-amb-bg)", color: "var(--dg-amb-fg)" }}
+                      >
                         +{it.gap_above.toFixed(4)} above you
                       </span>
                     </span>
@@ -342,10 +370,10 @@ export function ResultsView({
 
         {results.also_offered_no_cutoff_count > 0 ? (
           <section className="mt-4">
-            <div className="mb-3 text-sm font-bold text-[#44546f]">
+            <div className="mb-3 text-sm font-bold" style={{ color: "var(--dg-ink)" }}>
               Also offered in your stream — no {results.exam_year_used} cutoff in your district
             </div>
-            <p className="mb-4 max-w-[640px] text-sm leading-[1.5] text-[#7c89a0]">
+            <p className="mb-4 max-w-[640px] text-sm leading-[1.5]" style={{ color: "var(--dg-muted)" }}>
               These programmes are part of the catalog but had no recorded intake for your
               district in {results.exam_year_used}, so we can&apos;t compute eligibility from a
               Z-score. Check directly with the university.
@@ -354,10 +382,11 @@ export function ResultsView({
               {results.also_offered_no_cutoff.map((it) => (
                 <div
                   key={it.course_code + it.university_code}
-                  className="flex items-center justify-between rounded-xl border border-[#e3e9f2] bg-white px-5 py-3 text-sm"
+                  className="flex items-center justify-between rounded-xl px-5 py-3 text-sm"
+                  style={{ border: "1px solid var(--dg-border)", background: "var(--dg-surface)" }}
                 >
-                  <span className="font-medium">{it.course_name}</span>
-                  <span className="text-[#9aa7be]">{it.university_name}</span>
+                  <span className="font-medium" style={{ color: "var(--dg-ink)" }}>{it.course_name}</span>
+                  <span style={{ color: "var(--dg-muted)" }}>{it.university_name}</span>
                 </div>
               ))}
             </div>
@@ -370,8 +399,11 @@ export function ResultsView({
 
 function Pill({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-[7px] rounded-full border border-[#e3e9f2] bg-white px-[15px] py-2 text-sm font-semibold">
-      <span className="font-medium text-[#9aa7be]">{label}</span> {value}
+    <span
+      className="inline-flex items-center gap-[7px] rounded-full px-[15px] py-2 text-sm font-semibold"
+      style={{ background: "var(--dg-surface)", border: "1px solid var(--dg-border)", color: "var(--dg-ink)" }}
+    >
+      <span className="font-medium" style={{ color: "var(--dg-muted)" }}>{label}</span> {value}
     </span>
   );
 }
@@ -399,11 +431,11 @@ function CutoffTrend({
   let chip: { text: string; color: string; bg: string } | null = null;
   if (delta != null && prevYear != null) {
     if (Math.abs(delta) < 0.005) {
-      chip = { text: `≈ same as ${prevYear}`, color: "#7c89a0", bg: "#eef2f8" };
+      chip = { text: `≈ same as ${prevYear}`, color: "var(--dg-muted)", bg: "var(--dg-surface2)" };
     } else if (delta > 0) {
-      chip = { text: `↑ +${delta.toFixed(4)} vs ${prevYear}`, color: "#b4485f", bg: "#fbe9ed" };
+      chip = { text: `↑ +${delta.toFixed(4)} vs ${prevYear}`, color: "var(--dg-amb-fg)", bg: "var(--dg-amb-bg)" };
     } else {
-      chip = { text: `↓ ${delta.toFixed(4)} vs ${prevYear}`, color: "#0a7d54", bg: "#e4f5ec" };
+      chip = { text: `↓ ${delta.toFixed(4)} vs ${prevYear}`, color: "var(--dg-safe-fg)", bg: "var(--dg-safe-bg)" };
     }
   }
 
@@ -411,13 +443,16 @@ function CutoffTrend({
     <details className="relative inline-block">
       <summary
         className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full px-[10px] py-[3px] text-[11.5px] font-bold [&::-webkit-details-marker]:hidden"
-        style={chip ? { color: chip.color, background: chip.bg } : { color: "#7c89a0", background: "#eef2f8" }}
+        style={chip ? { color: chip.color, background: chip.bg } : { color: "var(--dg-muted)", background: "var(--dg-surface2)" }}
         title="Cutoff history for your district and stream"
       >
         {chip ? chip.text : "History"}
       </summary>
-      <div className="absolute right-0 z-20 mt-2 w-[210px] rounded-xl border border-[#e3e9f2] bg-white p-3 shadow-[0_6px_20px_rgba(20,36,59,.12)]">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-[.5px] text-[#9aa7be]">
+      <div
+        className="absolute right-0 z-20 mt-2 w-[210px] rounded-xl p-3"
+        style={{ border: "1px solid var(--dg-border)", background: "var(--dg-surface)", boxShadow: "var(--dg-shadow)" }}
+      >
+        <div className="mb-2 text-[11px] font-bold uppercase tracking-[.5px]" style={{ color: "var(--dg-muted)" }}>
           Cutoff by year
         </div>
         {years.map((y) => (
@@ -426,14 +461,17 @@ function CutoffTrend({
             className="flex items-center justify-between py-[3px] text-[13px] tabular-nums"
             style={{ fontWeight: y === viewedYear ? 700 : 500 }}
           >
-            <span className="text-[#44546f]">
+            <span style={{ color: "var(--dg-muted)" }}>
               {y}
               {y === viewedYear ? " (viewing)" : ""}
             </span>
-            <span className="text-[#16243b]">{series[String(y)].toFixed(4)}</span>
+            <span style={{ color: "var(--dg-ink)" }}>{series[String(y)].toFixed(4)}</span>
           </div>
         ))}
-        <div className="mt-2 border-t border-[#eef2f8] pt-2 text-[11px] leading-[1.4] text-[#9aa7be]">
+        <div
+          className="mt-2 border-t pt-2 text-[11px] leading-[1.4]"
+          style={{ borderColor: "var(--dg-track)", color: "var(--dg-muted)" }}
+        >
           Z-scores are standardised per year — treat older years as trend context.
         </div>
       </div>
@@ -453,28 +491,38 @@ function CourseCard({
   viewedYear: number;
 }) {
   const matchPct = Math.round(d.total_score * 100);
-  const youColor = d.student_margin >= 0 ? "#16a06b" : "#d76a82";
+  const youColor = d.student_margin >= 0 ? "#16a06b" : "var(--dg-amb-bar)";
   const youPos = Math.min(96, Math.max(4, ((d.student_margin + 0.4) / 0.8) * 100));
 
   return (
-    <article className="rounded-[20px] border border-[#e3e9f2] bg-white p-6 shadow-[0_1px_3px_rgba(20,36,59,.04)] sm:p-7">
+    <article
+      className="rounded-[20px] p-6 sm:p-7"
+      style={{ border: "1px solid var(--dg-border)", background: "var(--dg-surface)", boxShadow: "var(--dg-shadow)" }}
+    >
       <div className="flex flex-wrap items-start justify-between gap-5">
         <div className="min-w-[220px] flex-1">
           {d.status === "conditional" ? (
-            <div className="mb-[11px] inline-flex items-center rounded-md bg-[#fbe9ed] px-[11px] py-1 text-[11.5px] font-bold uppercase tracking-[.4px] text-[#b4485f]">
+            <div
+              className="mb-[11px] inline-flex items-center rounded-md px-[11px] py-1 text-[11.5px] font-bold uppercase tracking-[.4px]"
+              style={{ background: "var(--dg-amb-bg)", color: "var(--dg-amb-fg)" }}
+            >
               Aptitude / practical test required
             </div>
           ) : null}
-          <h3 className="mb-1 font-[family-name:var(--font-newsreader)] text-2xl font-medium leading-[1.15] tracking-[-.3px] sm:text-[26px]">
+          <h3
+            className="mb-1 text-2xl font-semibold leading-[1.15] tracking-[-.3px] sm:text-[26px]"
+            style={{ fontFamily: "var(--font-spectral), Georgia, serif", color: "var(--dg-ink)" }}
+          >
             {d.course_name}
           </h3>
-          <div className="text-[15px] font-medium text-[#7c89a0]">{d.university_name}</div>
+          <div className="text-[15px] font-medium" style={{ color: "var(--dg-muted)" }}>{d.university_name}</div>
           {d.eligible_stream_codes.length > 1 ? (
             <div className="mt-[9px] flex flex-wrap gap-[6px]">
               {d.eligible_stream_codes.map((code) => (
                 <span
                   key={code}
-                  className="inline-block rounded-full border border-[#e3e9f2] px-[10px] py-[3px] text-[11.5px] font-semibold text-[#7c89a0]"
+                  className="inline-block rounded-full px-[10px] py-[3px] text-[11.5px] font-semibold"
+                  style={{ border: "1px solid var(--dg-border)", color: "var(--dg-muted)" }}
                 >
                   {STREAM_SHORT[code] ?? code}
                 </span>
@@ -484,28 +532,31 @@ function CourseCard({
         </div>
         <div className="flex-shrink-0 text-right">
           <div
-            className="font-[family-name:var(--font-newsreader)] text-4xl font-medium leading-none tracking-[-1px] sm:text-[46px]"
-            style={{ color: accent }}
+            className="text-4xl font-semibold leading-none tracking-[-1px] sm:text-[46px]"
+            style={{ color: accent, fontFamily: "var(--font-spectral), Georgia, serif" }}
           >
             {matchPct}
-            <span className="text-xl text-[#9aa7be] sm:text-[22px]">%</span>
+            <span className="text-xl sm:text-[22px]" style={{ color: "var(--dg-muted)" }}>%</span>
           </div>
-          <div className="mt-[2px] text-xs font-semibold uppercase tracking-[.5px] text-[#9aa7be]">
+          <div className="mt-[2px] text-xs font-semibold uppercase tracking-[.5px]" style={{ color: "var(--dg-muted)" }}>
             Match
           </div>
         </div>
       </div>
 
-      <div className="mt-[22px] flex flex-wrap gap-[30px] border-t border-[#eef2f8] pt-[22px]">
+      <div
+        className="mt-[22px] flex flex-wrap gap-[30px] border-t pt-[22px]"
+        style={{ borderColor: "var(--dg-track)" }}
+      >
         <div className="min-w-[260px] flex-1">
           <div className="mb-[14px] flex items-center justify-between">
-            <div className="text-xs font-bold uppercase tracking-[.5px] text-[#9aa7be]">
+            <div className="text-xs font-bold uppercase tracking-[.5px]" style={{ color: "var(--dg-muted)" }}>
               Score breakdown
             </div>
             {(() => {
               const why = whyRankedHere(d.breakdown);
               return why ? (
-                <div className="text-[11.5px] font-semibold text-[#7c89a0]">{why}</div>
+                <div className="text-[11.5px] font-semibold" style={{ color: "var(--dg-muted)" }}>{why}</div>
               ) : null;
             })()}
           </div>
@@ -516,11 +567,11 @@ function CourseCard({
               return (
                 <div key={bar.name}>
                   <div className="mb-[4px] flex items-baseline justify-between text-[13px]">
-                    <span className="font-semibold text-[#44546f]">
+                    <span className="font-semibold" style={{ color: "var(--dg-ink)" }}>
                       {DIMENSION_LABEL[bar.name] ?? bar.name}
                     </span>
                     {isMismatch ? (
-                      <span className="text-[12px] font-semibold text-[#b07407]">Not matched</span>
+                      <span className="text-[12px] font-semibold" style={{ color: "var(--dg-con-fg)" }}>Not matched</span>
                     ) : (
                       <span className="font-bold tabular-nums" style={{ color }}>
                         {Math.round(bar.raw_score * 100)}%
@@ -528,16 +579,16 @@ function CourseCard({
                     )}
                   </div>
                   {DIMENSION_DESC[bar.name] ? (
-                    <div className="mb-[6px] text-[11.5px] text-[#aab5c8]">
+                    <div className="mb-[6px] text-[11.5px]" style={{ color: "var(--dg-muted)" }}>
                       {DIMENSION_DESC[bar.name]}
                     </div>
                   ) : null}
                   {isMismatch ? (
-                    <div className="h-[6px] overflow-hidden rounded-full bg-[#eef2f8]">
+                    <div className="h-[6px] overflow-hidden rounded-full" style={{ background: "var(--dg-track)" }}>
                       <div className="h-full w-0 rounded-full" />
                     </div>
                   ) : (
-                    <div className="h-[6px] overflow-hidden rounded-full bg-[#eef2f8]">
+                    <div className="h-[6px] overflow-hidden rounded-full" style={{ background: "var(--dg-track)" }}>
                       <div
                         className="h-full rounded-full transition-[width] duration-500"
                         style={{
@@ -555,25 +606,25 @@ function CourseCard({
 
         <div className="min-w-[240px] flex-1">
           <div className="mb-[14px] flex items-center justify-between gap-2">
-            <div className="text-xs font-bold uppercase tracking-[.5px] text-[#9aa7be]">
+            <div className="text-xs font-bold uppercase tracking-[.5px]" style={{ color: "var(--dg-muted)" }}>
               Cutoff vs. you
             </div>
             <CutoffTrend series={series} viewedYear={viewedYear} />
           </div>
-          <div className="relative mb-2 h-2 rounded-full bg-[#eef2f8]">
+          <div className="relative mb-2 h-2 rounded-full" style={{ background: "var(--dg-track)" }}>
             <div
-              className="absolute -top-1 bottom-[-4px] w-[2px] bg-[#aab5c8]"
-              style={{ left: "50%" }}
+              className="absolute -top-1 bottom-[-4px] w-[2px]"
+              style={{ left: "50%", background: "var(--dg-muted)" }}
             />
             <div
-              className="absolute top-1/2 h-[13px] w-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[2.5px] border-white shadow-[0_1px_4px_rgba(20,36,59,.25)]"
-              style={{ left: `${youPos}%`, background: youColor }}
+              className="absolute top-1/2 h-[13px] w-[13px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+              style={{ left: `${youPos}%`, background: youColor, border: "2.5px solid var(--dg-surface)", boxShadow: "var(--dg-shadow)" }}
             />
           </div>
           <div className="mb-[18px] flex justify-between text-[13px]">
-            <span className="text-[#7c89a0]">
+            <span style={{ color: "var(--dg-muted)" }}>
               Cutoff{" "}
-              <strong className="tabular-nums text-[#44546f]">
+              <strong className="tabular-nums" style={{ color: "var(--dg-ink)" }}>
                 {d.cutoff_z_score.toFixed(4)}
               </strong>
             </span>
@@ -582,14 +633,17 @@ function CourseCard({
             </span>
           </div>
           {d.is_marginal ? (
-            <p className="text-[12.5px] leading-[1.4] text-[#b07407]">
+            <p className="text-[12.5px] leading-[1.4]" style={{ color: "var(--dg-con-fg)" }}>
               Close to the cutoff — next year&apos;s could shift and change this result.
             </p>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-5 border-t border-[#eef2f8] pt-[18px] text-[13px] text-[#9aa7be]">
+      <div
+        className="mt-5 border-t pt-[18px] text-[13px]"
+        style={{ borderColor: "var(--dg-track)", color: "var(--dg-muted)" }}
+      >
         {d.selection_basis === "all_island_merit" ? "All-island merit selection" : "District quota selection"}
       </div>
     </article>

@@ -92,3 +92,66 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Student-side design tokens (the "Degree Guidance" reskin).
+   Namespaced --dg-* so they never collide with the admin/shadcn tokens
+   above. Light is :root; dark follows next-themes' .dark class AND an
+   explicit [data-theme="dark"] for the student shell's own toggle.
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  --dg-bg: #fbfaf7;
+  --dg-surface: #ffffff;
+  --dg-surface2: #f4f2eb;
+  --dg-border: #e6e1d5;
+  --dg-ink: #26231e;
+  --dg-muted: #6e685b;
+  --dg-accent: #3b3f8f;
+  --dg-accent-soft: #ecedf8;
+  --dg-accent-ink: #ffffff;
+  --dg-track: #ece8df;
+  --dg-shadow: 0 1px 2px rgba(30, 25, 15, 0.06), 0 6px 20px rgba(30, 25, 15, 0.05);
+  --dg-safe-fg: #1e7a4d;
+  --dg-safe-bg: #e8f4ed;
+  --dg-safe-bd: #c3e5d0;
+  --dg-safe-bar: #2e9e63;
+  --dg-con-fg: #8f5f0c;
+  --dg-con-bg: #fbf1db;
+  --dg-con-bd: #eed8a6;
+  --dg-con-bar: #ce8e27;
+  --dg-amb-fg: #b23a5b;
+  --dg-amb-bg: #fbe7ed;
+  --dg-amb-bd: #f2c6d2;
+  --dg-amb-bar: #d6537a;
+}
+.dark,
+[data-theme="dark"] {
+  --dg-bg: #131511;
+  --dg-surface: #1d1e19;
+  --dg-surface2: #26271f;
+  --dg-border: #343528;
+  --dg-ink: #f0ede4;
+  --dg-muted: #a39d8f;
+  --dg-accent: #aab0f2;
+  --dg-accent-soft: #23244a;
+  --dg-accent-ink: #131511;
+  --dg-track: #2c2d24;
+  --dg-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --dg-safe-fg: #79d3a0;
+  --dg-safe-bg: #15271d;
+  --dg-safe-bd: #254e37;
+  --dg-safe-bar: #3fb877;
+  --dg-con-fg: #e8b85e;
+  --dg-con-bg: #292112;
+  --dg-con-bd: #4a3c1c;
+  --dg-con-bar: #d69e3a;
+  --dg-amb-fg: #ee9ab0;
+  --dg-amb-bg: #2a171e;
+  --dg-amb-bd: #4d2733;
+  --dg-amb-bar: #d6537a;
+}
+
+@keyframes dgUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes dgFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dgPop { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes dgSlide { from { transform: translateX(100%); } to { transform: none; } }

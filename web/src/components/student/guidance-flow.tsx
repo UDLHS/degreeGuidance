@@ -13,51 +13,21 @@ import type {
   YearsResponse,
 } from "@/lib/guidance-types";
 
-const ACCENT = "#2b5fd0";
 const LAST_RUN_KEY = "dg_last_run";
+const THEME_KEY = "dg-theme";
 const STEP_LABELS = ["Z-score", "District", "Stream", "Subjects", "Preferences"];
 const TOTAL_STEPS = STEP_LABELS.length;
 const GRADES: SubjectInput["grade"][] = ["A", "B", "C", "S"];
 
-// The 6 real A/L exam streams a student actually sits. ICT is a navigation
-// category on the courses side (masterplan §3), not something a student
-// "was in" -- so it is deliberately excluded from this picker even though
-// the reference endpoint returns it.
-const STREAM_ICONS: Record<string, React.ReactNode> = {
-  PHYSICAL_SCIENCE: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
-      <ellipse cx="12" cy="12" rx="10" ry="4.5" stroke="currentColor" strokeWidth="1.6" />
-      <ellipse cx="12" cy="12" rx="10" ry="4.5" stroke="currentColor" strokeWidth="1.6" transform="rotate(60 12 12)" />
-      <ellipse cx="12" cy="12" rx="10" ry="4.5" stroke="currentColor" strokeWidth="1.6" transform="rotate(120 12 12)" />
-    </svg>
-  ),
-  BIO_SCIENCE: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  ),
-  COMMERCE: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M4 20V10M9.5 20V5M15 20v-7M20.5 20V8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  ),
-  ARTS: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M4 19.5h16M6 19.5V8l6-4 6 4v11.5M10 19.5V13h4v6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  ENGINEERING_TECH: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M9 18l-5-6 5-6M15 6l5 6-5 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-  BIOSYSTEMS_TECH: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-      <path d="M12 3v6M12 15v6M5 12h6M13 12h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  ),
+// Short one-line descriptors shown under each stream card. Keyed by our real
+// stream codes. ICT is intentionally absent — it is filtered from the picker.
+const STREAM_DESC: Record<string, string> = {
+  PHYSICAL_SCIENCE: "Maths, Physics, Chemistry — engineering, computing & physical sciences.",
+  BIO_SCIENCE: "Biology-based — medicine, life sciences & agriculture.",
+  COMMERCE: "Accounting, Economics & Business — management & finance.",
+  ARTS: "Languages, humanities & social sciences.",
+  ENGINEERING_TECH: "Applied engineering & technology degrees.",
+  BIOSYSTEMS_TECH: "Agri & bio-based applied technology.",
 };
 
 type View = "flow" | "results";
@@ -67,6 +37,7 @@ export function GuidanceFlow() {
   const [reference, setReference] = useState<ReferenceData | null>(null);
   const [refError, setRefError] = useState(false);
 
+  const [dark, setDark] = useState(false);
   const [view, setView] = useState<View>("flow");
   const [activeTab, setActiveTab] = useState<Tab>("results");
   const [chatKey, setChatKey] = useState(0);
@@ -86,6 +57,32 @@ export function GuidanceFlow() {
   const [results, setResults] = useState<RecommendationResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Self-contained light/dark for the student shell (drives the --dg-* tokens).
+  // Independent of the admin theme. Read the saved choice once on mount…
+  useEffect(() => {
+    try {
+      setDark(localStorage.getItem(THEME_KEY) === "dark");
+    } catch {
+      /* storage blocked — stay light */
+    }
+  }, []);
+  // …then reflect it onto <html> so the whole student route (including the
+  // layout wrapper behind this shell) themes together, not just this subtree.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  }, [dark]);
+  function toggleTheme() {
+    setDark((d) => {
+      const next = !d;
+      try {
+        localStorage.setItem(THEME_KEY, next ? "dark" : "light");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     fetch("/api/public/reference")
@@ -191,7 +188,7 @@ export function GuidanceFlow() {
         localStorage.setItem(
           LAST_RUN_KEY,
           JSON.stringify({
-            v: 2,  // bump when the results shape changes (see restore gate)
+            v: 2, // bump when the results shape changes (see restore gate)
             zScore,
             districtCode,
             streamCode,
@@ -243,14 +240,24 @@ export function GuidanceFlow() {
     (step === 3 && subjects.filter(Boolean).length !== 3)
   );
   const isResults = view === "results";
-  const progressPct = isResults ? 100 : ((step + 1) / TOTAL_STEPS) * 100;
+  const progressPct = ((step + 1) / TOTAL_STEPS) * 100;
   const districtName = reference?.districts.find((d) => d.code === districtCode)?.name_en ?? "";
   const streamName = examStreams.find((s) => s.code === streamCode)?.name_en ?? "";
 
+  const shellStyle: React.CSSProperties = {
+    background: "var(--dg-bg)",
+    color: "var(--dg-ink)",
+    fontFamily: "var(--font-public-sans), system-ui, sans-serif",
+  };
+
   if (refError) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-6 text-center">
-        <p className="text-[#5b6b85]">
+      <div
+        data-theme={dark ? "dark" : "light"}
+        style={shellStyle}
+        className="flex min-h-screen items-center justify-center p-6 text-center"
+      >
+        <p style={{ color: "var(--dg-muted)" }}>
           Couldn&apos;t reach the guidance service. Please refresh, or try again shortly.
         </p>
       </div>
@@ -258,107 +265,112 @@ export function GuidanceFlow() {
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col text-[#16243b]">
-      <header className="sticky top-0 z-40 border-b border-[#e3e9f2] bg-white/86 backdrop-blur">
-        <div className="mx-auto flex h-[66px] max-w-[1120px] items-center justify-between gap-4 px-6">
-          <button
-            onClick={() => {
-              window.scrollTo(0, 0);
-              setView("flow");
-              setStep(0);
-            }}
-            className="flex flex-shrink-0 items-center gap-[11px]"
+    <div
+      data-theme={dark ? "dark" : "light"}
+      style={shellStyle}
+      className="dg-scroll relative flex min-h-screen flex-col"
+    >
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <header
+        className="sticky top-0 z-40 flex items-center justify-between gap-3 px-[18px] py-[14px] backdrop-blur"
+        style={{
+          background: "color-mix(in srgb, var(--dg-bg) 82%, transparent)",
+          borderBottom: "1px solid var(--dg-border)",
+        }}
+      >
+        <button
+          onClick={() => {
+            window.scrollTo(0, 0);
+            setView("flow");
+            setStep(0);
+          }}
+          className="flex items-center gap-[10px]"
+        >
+          <span
+            className="grid h-[34px] w-[34px] place-items-center rounded-[9px]"
+            style={{ background: "var(--dg-accent)", color: "var(--dg-accent-ink)", boxShadow: "var(--dg-shadow)" }}
           >
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-[10px] shadow-[0_3px_10px_rgba(43,95,208,.3)]"
-              style={{ background: ACCENT }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L3 7l9 5 9-5-9-5z" fill="#fff" />
-                <path d="M3 12l9 5 9-5M3 17l9 5 9-5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 10 12 5 2 10l10 5 10-5Z" />
+              <path d="M6 12v5c0 1 2.7 3 6 3s6-2 6-3v-5" />
+            </svg>
+          </span>
+          <span
+            className="text-[19px] font-bold tracking-[-.01em]"
+            style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}
+          >
+            Degree Guidance
+          </span>
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[12.5px] sm:inline" style={{ color: "var(--dg-muted)" }}>
+            Official UGC Z-score cutoffs
+          </span>
+          <button
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+            className="grid h-[38px] w-[38px] place-items-center rounded-[10px]"
+            style={{ background: "var(--dg-surface)", border: "1px solid var(--dg-border)", color: "var(--dg-muted)", boxShadow: "var(--dg-shadow)" }}
+          >
+            {dark ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
               </svg>
-            </div>
-            <div className="text-left leading-[1.05]">
-              <div className="text-[17px] font-bold tracking-[-.2px]">Degree Guidance</div>
-              <div className="text-[11px] font-medium text-[#7c89a0]">Sri Lankan A/L admissions</div>
-            </div>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+            )}
           </button>
-
-          {!isResults ? (
-            <nav className="hidden items-center gap-[18px] sm:flex">
-              {STEP_LABELS.map((label, i) => {
-                const done = i < step;
-                const active = i === step;
-                return (
-                  <div key={label} className="flex items-center gap-[9px]">
-                    <span
-                      className="flex h-[25px] w-[25px] items-center justify-center rounded-full border-[1.5px] text-[12.5px] font-bold transition-colors"
-                      style={{
-                        background: done || active ? ACCENT : "#fff",
-                        color: done || active ? "#fff" : "#9aa7be",
-                        borderColor: done || active ? ACCENT : "#d4dce8",
-                      }}
-                    >
-                      {done ? "✓" : i + 1}
-                    </span>
-                    <span
-                      className="text-[13.5px] font-semibold"
-                      style={{ color: done || active ? "#16243b" : "#9aa7be" }}
-                    >
-                      {label}
-                    </span>
-                  </div>
-                );
-              })}
-            </nav>
-          ) : null}
-          <div className="w-9 flex-shrink-0 sm:hidden" />
-        </div>
-        <div className="h-[3px] bg-[#e9eef6]">
-          <div
-            className="h-full rounded-r-[3px] transition-[width] duration-500"
-            style={{ background: ACCENT, width: `${progressPct}%` }}
-          />
         </div>
       </header>
 
       {!isResults ? (
-        <main className="mx-auto w-full max-w-[1120px] flex-1 px-6">
-          <div className="mx-auto max-w-[780px] py-[54px] pb-[100px]">
-            {!reference ? (
-              <p className="text-[#7c89a0]">Loading…</p>
-            ) : (
-              <>
-                {step === 0 && (
-                  <ZScoreStep
-                    value={zScore}
-                    onChange={setZScore}
-                    accent={ACCENT}
-                    latestYear={years.find((y) => y.is_latest)?.year ?? null}
-                  />
-                )}
-                {step === 1 && (
-                  <DistrictStep
-                    districts={reference.districts}
-                    selected={districtCode}
-                    onPick={setDistrictCode}
-                    accent={ACCENT}
-                  />
-                )}
-                {step === 2 && (
-                  <StreamStep
-                    streams={examStreams}
-                    selected={streamCode}
-                    onPick={setStreamCode}
-                    accent={ACCENT}
-                  />
-                )}
+        <main className="mx-auto w-full max-w-[600px] flex-1 px-5 pb-[120px] pt-[26px]">
+          {!reference ? (
+            <p style={{ color: "var(--dg-muted)" }}>Loading…</p>
+          ) : (
+            <>
+              {/* progress */}
+              <div className="mb-[26px] flex items-center gap-[14px]">
+                <button
+                  onClick={back}
+                  className="grid h-10 w-10 flex-none place-items-center rounded-[10px]"
+                  style={{
+                    background: "var(--dg-surface)",
+                    border: "1px solid var(--dg-border)",
+                    color: "var(--dg-muted)",
+                    visibility: step > 0 ? "visible" : "hidden",
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 12H5M11 18l-6-6 6-6" />
+                  </svg>
+                </button>
+                <div className="flex-1">
+                  <div className="mb-[7px] flex justify-between gap-[10px] text-[12.5px] font-medium" style={{ color: "var(--dg-muted)" }}>
+                    <span>Step {step + 1} of {TOTAL_STEPS} · {STEP_LABELS[step]}</span>
+                    <span>{Math.round(progressPct)}%</span>
+                  </div>
+                  <div className="h-[6px] overflow-hidden rounded-full" style={{ background: "var(--dg-track)" }}>
+                    <div
+                      className="h-full rounded-full transition-[width] duration-[350ms]"
+                      style={{ width: `${progressPct}%`, background: "var(--dg-accent)" }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ animation: "dgUp .3s ease" }}>
+                {step === 0 && <ZScoreStep value={zScore} onChange={setZScore} latestYear={years.find((y) => y.is_latest)?.year ?? null} />}
+                {step === 1 && <DistrictStep districts={reference.districts} selected={districtCode} onPick={setDistrictCode} />}
+                {step === 2 && <StreamStep streams={examStreams} selected={streamCode} onPick={setStreamCode} />}
                 {step === 3 && (
                   <SubjectsStep
                     stream={examStreams.find((s) => s.code === streamCode) ?? null}
                     subjects={subjects}
                     onChange={setSubjects}
-                    accent={ACCENT}
                   />
                 )}
                 {step === 4 && (
@@ -368,69 +380,77 @@ export function GuidanceFlow() {
                     onToggleUni={toggleUni}
                     interests={interests}
                     onInterests={setInterests}
-                    accent={ACCENT}
                   />
                 )}
+              </div>
 
-                {submitError ? (
-                  <p className="mt-6 text-sm text-[#b4485f]">{submitError}</p>
-                ) : null}
+              {submitError ? <p className="mt-6 text-sm" style={{ color: "var(--dg-amb-fg)" }}>{submitError}</p> : null}
+            </>
+          )}
 
-                <div className="mt-12 flex items-center justify-between">
-                  <button
-                    onClick={back}
-                    className="rounded-xl px-[22px] py-[13px] text-[15px] font-semibold text-[#7c89a0]"
-                    style={{ visibility: step > 0 ? "visible" : "hidden" }}
-                  >
-                    ← Back
-                  </button>
-                  <button
-                    onClick={next}
-                    disabled={!stepValid || loading}
-                    className="rounded-[13px] px-[34px] py-[15px] text-[16px] font-bold text-white shadow-[0_6px_18px_rgba(43,95,208,.28)] transition-opacity disabled:cursor-not-allowed"
-                    style={{
-                      background: stepValid ? ACCENT : "#aebbd2",
-                      opacity: loading ? 0.7 : 1,
-                    }}
-                  >
-                    {loading ? "Finding matches…" : step === TOTAL_STEPS - 1 ? "See my matches →" : "Continue"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          {/* fixed bottom CTA */}
+          {reference ? (
+            <div
+              className="fixed inset-x-0 bottom-0 px-5 py-[14px] backdrop-blur"
+              style={{ background: "color-mix(in srgb, var(--dg-bg) 88%, transparent)", borderTop: "1px solid var(--dg-border)" }}
+            >
+              <div className="mx-auto max-w-[600px]">
+                <button
+                  onClick={next}
+                  disabled={!stepValid || loading}
+                  className="flex w-full items-center justify-center gap-[9px] rounded-[13px] p-4 text-[16px] font-semibold transition-all disabled:cursor-not-allowed"
+                  style={{
+                    background: stepValid ? "var(--dg-accent)" : "var(--dg-track)",
+                    color: stepValid ? "var(--dg-accent-ink)" : "var(--dg-muted)",
+                    opacity: loading ? 0.7 : 1,
+                  }}
+                >
+                  {loading ? "Finding matches…" : step === TOTAL_STEPS - 1 ? "See my matches" : "Continue"}
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ) : null}
         </main>
       ) : results ? (
         <>
-          {/* ── Tab bar ─────────────────────────────────────────────────── */}
-          <div className="sticky top-[69px] z-30 border-b border-[#e3e9f2] bg-white">
-            <div className="mx-auto flex max-w-[1120px] px-6">
+          {/* ── Segmented Courses / AI Advisor ──────────────────────────── */}
+          <div className="mx-auto w-full max-w-[1000px] px-[18px] pt-[22px]">
+            <div
+              className="inline-flex rounded-[12px] p-[4px]"
+              style={{ background: "var(--dg-surface2)", border: "1px solid var(--dg-border)" }}
+            >
               {(["results", "chat"] as Tab[]).map((tab) => {
                 const active = activeTab === tab;
                 return (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className="flex items-center gap-2 border-b-2 px-5 py-[14px] text-[14px] font-semibold transition-colors"
+                    className="inline-flex items-center gap-[7px] rounded-[9px] px-4 py-[9px] text-[14px] font-semibold transition-colors"
                     style={{
-                      borderColor: active ? ACCENT : "transparent",
-                      color: active ? ACCENT : "#7c89a0",
+                      background: active ? "var(--dg-surface)" : "transparent",
+                      color: active ? "var(--dg-ink)" : "var(--dg-muted)",
+                      boxShadow: active ? "var(--dg-shadow)" : "none",
                     }}
                   >
                     {tab === "results" ? (
                       <>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                          <path d="M9 11l3 3L22 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" />
                         </svg>
-                        Results
+                        Courses
                       </>
                     ) : (
                       <>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-                          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 8V4H8" />
+                          <rect x="4" y="8" width="16" height="12" rx="2" />
+                          <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
                         </svg>
-                        Chat with AI Advisor
+                        AI Advisor
                       </>
                     )}
                   </button>
@@ -439,7 +459,6 @@ export function GuidanceFlow() {
             </div>
           </div>
 
-          {/* ── Tab content ─────────────────────────────────────────────── */}
           {activeTab === "results" && (
             <ResultsView
               results={results}
@@ -455,7 +474,7 @@ export function GuidanceFlow() {
                 submit(y);
               }}
               onEdit={edit}
-              accent={ACCENT}
+              accent="var(--dg-accent)"
             />
           )}
           {activeTab === "chat" && (
@@ -487,26 +506,28 @@ export function GuidanceFlow() {
   );
 }
 
-function StepKicker({ step, accent }: { step: number; accent: string }) {
+/* ── Shared step chrome ─────────────────────────────────────────────────── */
+
+function StepHeading({ title, sub }: { title: React.ReactNode; sub: React.ReactNode }) {
   return (
-    <div
-      className="mb-[14px] text-[13px] font-bold uppercase tracking-[1.5px]"
-      style={{ color: accent }}
-    >
-      Step {step} of {TOTAL_STEPS}
-    </div>
+    <>
+      <h2 className="mb-[6px] text-[27px] font-bold tracking-[-.01em]" style={{ fontFamily: "var(--font-spectral), Georgia, serif" }}>
+        {title}
+      </h2>
+      <p className="mb-[22px] text-[15px]" style={{ color: "var(--dg-muted)" }}>{sub}</p>
+    </>
   );
 }
+
+/* ── Step 1: Z-score ────────────────────────────────────────────────────── */
 
 function ZScoreStep({
   value,
   onChange,
-  accent,
   latestYear,
 }: {
   value: number;
   onChange: (v: number) => void;
-  accent: string;
   latestYear: number | null;
 }) {
   const [inputStr, setInputStr] = useState(value.toFixed(4));
@@ -529,80 +550,86 @@ function ZScoreStep({
     onChange(num);
   }
 
+  const pct = Math.max(0, Math.min(100, ((value + 1) / 5) * 100)); // -1..4 → 0..100
+
   return (
     <section>
-      <StepKicker step={1} accent={accent} />
-      <h1 className="mb-3 font-[family-name:var(--font-newsreader)] text-5xl font-medium leading-[1.08] tracking-[-.5px]">
-        What is your Z-score?
-      </h1>
-      <p className="mb-11 max-w-[520px] text-[17px] leading-[1.55] text-[#5b6b85]">
-        Enter the Z-score exactly as it appears on your G.C.E. A/L results sheet. It determines
-        which university programmes you&apos;re eligible for.
-      </p>
-      <div className="rounded-[22px] border border-[#e3e9f2] bg-white p-10 shadow-[0_1px_3px_rgba(20,36,59,.04)]">
-        <div className="flex flex-col items-center gap-3">
-          <input
-            type="text"
-            inputMode="decimal"
-            value={inputStr}
-            onChange={handleChange}
-            placeholder="e.g. 1.8540"
-            className="w-full max-w-[320px] rounded-[16px] border-[2px] px-6 py-4 text-center font-[family-name:var(--font-newsreader)] text-6xl font-medium tracking-[-1px] tabular-nums outline-none transition-colors sm:text-7xl"
-            style={{
-              color: inputError ? "#b4485f" : accent,
-              borderColor: inputError ? "#f0c4cc" : "#e3e9f2",
-              caretColor: accent,
-            }}
+      <StepHeading
+        title="What is your Z-score?"
+        sub="Enter it exactly as shown on your results sheet — four decimal places."
+      />
+      <div className="rounded-[16px] p-[22px]" style={{ background: "var(--dg-surface)", border: "1px solid var(--dg-border)", boxShadow: "var(--dg-shadow)" }}>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={inputStr}
+          onChange={handleChange}
+          placeholder="1.6500"
+          className="w-full rounded-[12px] px-[18px] py-4 text-center text-[34px] font-semibold tracking-[.02em] tabular-nums outline-none"
+          style={{
+            background: "var(--dg-bg)",
+            border: `1.5px solid ${inputError ? "var(--dg-amb-bd)" : "var(--dg-border)"}`,
+            color: inputError ? "var(--dg-amb-fg)" : "var(--dg-ink)",
+            fontFamily: "var(--font-spectral), Georgia, serif",
+          }}
+        />
+        <div className="mt-[14px] flex justify-between text-[12.5px]" style={{ color: "var(--dg-muted)" }}>
+          <span>Valid range: <strong style={{ color: "var(--dg-ink)" }}>−1.0000</strong></span>
+          <span>to <strong style={{ color: "var(--dg-ink)" }}>4.0000</strong></span>
+        </div>
+        <div className="relative mt-[8px] h-[6px] rounded-full" style={{ background: "var(--dg-track)" }}>
+          <div
+            className="absolute top-1/2 h-[14px] w-[14px] -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ left: `${pct}%`, background: "var(--dg-accent)", border: "2px solid var(--dg-surface)", boxShadow: "var(--dg-shadow)" }}
           />
-          {inputError ? (
-            <p className="text-[13.5px] font-semibold text-[#b4485f]">{inputError}</p>
-          ) : (
-            <p className="text-[13px] text-[#9aa7be]">Valid range: −1.0000 to 4.0000</p>
-          )}
         </div>
-        <div className="mt-[26px] border-t border-dashed border-[#e3e9f2] pt-[22px] text-center text-[14.5px] leading-[1.5] text-[#7c89a0]">
-          Eligibility is checked against the real, verified
-          {latestYear ? ` ${latestYear}` : " latest"} cutoffs for every course in your stream and
-          district{latestYear ? " — you can switch to earlier years on your results" : ""}.
-        </div>
+        {inputError ? (
+          <p className="mt-[14px] flex items-center gap-[7px] text-[13px]" style={{ color: "var(--dg-amb-fg)" }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><path d="M12 8v4M12 16h.01" />
+            </svg>
+            {inputError}
+          </p>
+        ) : (
+          <p className="mt-[14px] text-[13px]" style={{ color: "var(--dg-muted)" }}>
+            Checked against the real, verified{latestYear ? ` ${latestYear}` : ""} cutoffs for every course in your
+            stream and district. A typical strong score is around <strong style={{ color: "var(--dg-ink)" }}>1.8–2.4</strong>.
+          </p>
+        )}
       </div>
     </section>
   );
 }
 
+/* ── Step 2: District ───────────────────────────────────────────────────── */
+
 function DistrictStep({
   districts,
   selected,
   onPick,
-  accent,
 }: {
   districts: ReferenceData["districts"];
   selected: string | null;
   onPick: (code: string) => void;
-  accent: string;
 }) {
   return (
     <section>
-      <StepKicker step={2} accent={accent} />
-      <h1 className="mb-3 font-[family-name:var(--font-newsreader)] text-5xl font-medium leading-[1.08] tracking-[-.5px]">
-        Which district did you apply from?
-      </h1>
-      <p className="mb-9 max-w-[560px] text-[17px] leading-[1.55] text-[#5b6b85]">
-        University selection uses a district quota, so the same Z-score can mean different things
-        depending on where you applied.
-      </p>
-      <div className="flex flex-wrap gap-[10px]">
+      <StepHeading
+        title="Which district did you apply from?"
+        sub="Cutoffs differ by district under the UGC quota system, so this matters."
+      />
+      <div className="flex flex-wrap gap-[9px]">
         {districts.map((d) => {
           const sel = selected === d.code;
           return (
             <button
               key={d.code}
               onClick={() => onPick(d.code)}
-              className="rounded-xl border-[1.5px] px-4 py-[11px] text-[14.5px] font-semibold transition-colors"
+              className="rounded-full px-[15px] py-[10px] text-[14px] font-medium transition-all"
               style={{
-                borderColor: sel ? accent : "#e3e9f2",
-                background: sel ? `color-mix(in srgb, ${accent} 9%, #fff)` : "#fff",
-                color: sel ? `color-mix(in srgb, ${accent} 78%, #000)` : "#44546f",
+                background: sel ? "var(--dg-accent)" : "var(--dg-surface)",
+                color: sel ? "var(--dg-accent-ink)" : "var(--dg-ink)",
+                border: `1px solid ${sel ? "var(--dg-accent)" : "var(--dg-border)"}`,
               }}
             >
               {d.name_en}
@@ -614,46 +641,47 @@ function DistrictStep({
   );
 }
 
+/* ── Step 3: Stream (hover reveals the stream's subjects) ───────────────── */
+
 function StreamStep({
   streams,
   selected,
   onPick,
-  accent,
 }: {
   streams: ReferenceData["streams"];
   selected: string | null;
   onPick: (code: string) => void;
-  accent: string;
 }) {
   return (
     <section>
-      <StepKicker step={3} accent={accent} />
-      <h1 className="mb-3 font-[family-name:var(--font-newsreader)] text-5xl font-medium leading-[1.08] tracking-[-.5px]">
-        What was your A/L stream?
-      </h1>
-      <p className="mb-9 max-w-[520px] text-[17px] leading-[1.55] text-[#5b6b85]">
-        This sets the pool of degree programmes you can be considered for.
-      </p>
-      <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2">
+      <StepHeading title="What was your A/L stream?" sub="Pick the stream you sat the exam in." />
+      <div className="grid gap-[11px]">
         {streams.map((s) => {
           const sel = selected === s.code;
+          const subjectPreview = s.subjects?.length ? s.subjects.join(" · ") : STREAM_DESC[s.code] ?? "";
           return (
             <button
               key={s.code}
               onClick={() => onPick(s.code)}
-              className="rounded-[18px] border-[1.5px] p-6 text-left transition-colors"
+              title={subjectPreview}
+              className="flex items-center gap-[14px] rounded-[14px] p-[16px_18px] text-left transition-all"
               style={{
-                borderColor: sel ? accent : "#e3e9f2",
-                background: sel ? `color-mix(in srgb, ${accent} 9%, #fff)` : "#fff",
+                background: sel ? "var(--dg-accent-soft)" : "var(--dg-surface)",
+                border: `1px solid ${sel ? "var(--dg-accent)" : "var(--dg-border)"}`,
               }}
             >
-              <div className="mb-3" style={{ color: sel ? accent : "#7c89a0" }}>
-                {STREAM_ICONS[s.code] ?? null}
-              </div>
-              <div className="mb-1 text-lg font-bold">{s.name_en}</div>
-              <div className="text-[13.5px] leading-[1.45] text-[#7c89a0]">
-                {s.subjects.length ? s.subjects.join(" · ") : "Subject combination varies"}
-              </div>
+              <span
+                className="grid h-[22px] w-[22px] flex-none place-items-center rounded-full"
+                style={{ border: `2px solid ${sel ? "var(--dg-accent)" : "var(--dg-muted)"}`, color: sel ? "var(--dg-accent)" : "var(--dg-muted)" }}
+              >
+                {sel ? <span className="h-[10px] w-[10px] rounded-full" style={{ background: "currentColor" }} /> : null}
+              </span>
+              <span className="flex-1">
+                <span className="block text-[15.5px] font-semibold" style={{ color: "var(--dg-ink)" }}>{s.name_en}</span>
+                <span className="mt-[2px] block text-[13px]" style={{ color: "var(--dg-muted)" }}>
+                  {STREAM_DESC[s.code] ?? subjectPreview}
+                </span>
+              </span>
             </button>
           );
         })}
@@ -662,16 +690,16 @@ function StreamStep({
   );
 }
 
+/* ── Step 4: Subjects (per-stream dropdown — our existing logic) ─────────── */
+
 function SubjectsStep({
   stream,
   subjects,
   onChange,
-  accent,
 }: {
   stream: ReferenceData["streams"][number] | null;
   subjects: (SubjectInput | null)[];
   onChange: (next: (SubjectInput | null)[]) => void;
-  accent: string;
 }) {
   const options = stream?.subjects ?? [];
   const pickedNames = new Set(subjects.filter((s): s is SubjectInput => s !== null).map((s) => s.subject));
@@ -689,43 +717,34 @@ function SubjectsStep({
 
   return (
     <section>
-      <StepKicker step={4} accent={accent} />
-      <h1 className="mb-3 font-[family-name:var(--font-newsreader)] text-5xl font-medium leading-[1.08] tracking-[-.5px]">
-        What were your 3 A/L subjects?
-      </h1>
-      <p className="mb-9 max-w-[560px] text-[17px] leading-[1.55] text-[#5b6b85]">
-        Many degrees require specific subjects beyond your stream — for example, Engineering
-        requires Chemistry specifically, while a Physics+Maths+ICT combination doesn&apos;t
-        qualify. This lets us check exactly, not just by stream.
-      </p>
+      <StepHeading
+        title="Your three subjects & grades"
+        sub="Pick each subject from your stream and the grade you got — this lets us flag aptitude-test courses and check exact requirements."
+      />
       {!options.length ? (
-        <p className="text-sm text-[#b4485f]">Pick a stream first to see its subject list.</p>
+        <p className="text-sm" style={{ color: "var(--dg-amb-fg)" }}>Pick a stream first to see its subject list.</p>
       ) : (
-        <div className="flex flex-col gap-[14px]">
+        <div className="grid gap-[14px]">
           {[0, 1, 2].map((i) => {
             const current = subjects[i];
-            const available = options.filter(
-              (o) => o === current?.subject || !pickedNames.has(o),
-            );
+            const available = options.filter((o) => o === current?.subject || !pickedNames.has(o));
             return (
-              <div
-                key={i}
-                className="flex flex-wrap items-center gap-3 rounded-2xl border-[1.5px] border-[#e3e9f2] bg-white p-4"
-              >
-                <span className="w-6 text-sm font-bold text-[#9aa7be]">{i + 1}.</span>
+              <div key={i} className="rounded-[14px] p-[15px_16px]" style={{ background: "var(--dg-surface)", border: "1px solid var(--dg-border)" }}>
+                <label className="mb-[8px] block text-[12px] font-semibold uppercase tracking-[.04em]" style={{ color: "var(--dg-muted)" }}>
+                  Subject {i + 1}
+                </label>
                 <select
                   value={current?.subject ?? ""}
                   onChange={(e) => setSlotSubject(i, e.target.value)}
-                  className="min-w-[220px] flex-1 rounded-xl border-[1.5px] border-[#e3e9f2] bg-white px-3 py-[10px] text-[15px]"
+                  className="mb-[12px] w-full rounded-[10px] px-[13px] py-[11px] text-[15px] outline-none"
+                  style={{ background: "var(--dg-bg)", border: "1px solid var(--dg-border)", color: "var(--dg-ink)" }}
                 >
                   <option value="">Select subject…</option>
                   {available.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
+                    <option key={o} value={o}>{o}</option>
                   ))}
                 </select>
-                <div className="flex gap-[6px]">
+                <div className="flex gap-[8px]">
                   {GRADES.map((g) => {
                     const sel = current?.grade === g;
                     return (
@@ -734,11 +753,11 @@ function SubjectsStep({
                         type="button"
                         disabled={!current}
                         onClick={() => setSlotGrade(i, g)}
-                        className="h-9 w-9 rounded-lg border-[1.5px] text-[14px] font-bold disabled:opacity-40"
+                        className="flex-1 rounded-[9px] p-[10px] text-[15px] font-bold transition-all disabled:opacity-40"
                         style={{
-                          borderColor: sel ? accent : "#e3e9f2",
-                          background: sel ? accent : "#fff",
-                          color: sel ? "#fff" : "#44546f",
+                          background: sel ? "var(--dg-accent)" : "var(--dg-bg)",
+                          color: sel ? "var(--dg-accent-ink)" : "var(--dg-muted)",
+                          border: `1px solid ${sel ? "var(--dg-accent)" : "var(--dg-border)"}`,
                         }}
                       >
                         {g}
@@ -751,10 +770,12 @@ function SubjectsStep({
           })}
         </div>
       )}
-      <p className="mt-4 text-[13px] text-[#9aa7be]">Grades: A (highest) · B · C · S (ordinary pass)</p>
+      <p className="mt-4 text-[13px]" style={{ color: "var(--dg-muted)" }}>Grades: A (highest) · B · C · S (ordinary pass)</p>
     </section>
   );
 }
+
+/* ── Step 5: Preferences (optional) ─────────────────────────────────────── */
 
 function PreferencesStep({
   universities,
@@ -762,70 +783,55 @@ function PreferencesStep({
   onToggleUni,
   interests,
   onInterests,
-  accent,
 }: {
   universities: ReferenceData["universities"];
   selectedUnis: string[];
   onToggleUni: (code: string) => void;
   interests: string;
   onInterests: (v: string) => void;
-  accent: string;
 }) {
   return (
     <section>
-      <div className="mb-[14px] flex items-baseline gap-3">
-        <div className="text-[13px] font-bold uppercase tracking-[1.5px]" style={{ color: accent }}>
-          Step {TOTAL_STEPS} of {TOTAL_STEPS}
-        </div>
-        <div className="text-[13px] font-semibold text-[#9aa7be]">Optional</div>
-      </div>
-      <h1 className="mb-3 font-[family-name:var(--font-newsreader)] text-5xl font-medium leading-[1.08] tracking-[-.5px]">
-        Any universities you&apos;d prefer?
-      </h1>
-      <p className="mb-9 max-w-[560px] text-[17px] leading-[1.55] text-[#5b6b85]">
-        We&apos;ll rank matches at your chosen universities higher. Skip this and we&apos;ll rank
-        purely by how safely you clear the cutoff.
-      </p>
-
-      <div className="mb-3 text-sm font-bold text-[#44546f]">Preferred universities</div>
-      <div className="mb-9 flex flex-wrap gap-[10px]">
-        {universities.map((u) => {
-          const sel = selectedUnis.includes(u.code);
-          return (
-            <button
-              key={u.code}
-              onClick={() => onToggleUni(u.code)}
-              className="rounded-full border-[1.5px] px-[18px] py-[11px] text-[14.5px] font-semibold"
-              style={{
-                borderColor: sel ? accent : "#e3e9f2",
-                background: sel ? `color-mix(in srgb, ${accent} 9%, #fff)` : "#fff",
-                color: sel ? `color-mix(in srgb, ${accent} 78%, #000)` : "#44546f",
-              }}
-            >
-              {u.short_name || u.code}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mb-[14px] text-sm font-bold text-[#44546f]">
-        Anything you&apos;re leaning toward? (in your own words)
-      </div>
-      <textarea
-        value={interests}
-        onChange={(e) => onInterests(e.target.value)}
-        rows={4}
-        placeholder="e.g. I love problem-solving and coding, and want a degree with strong job prospects."
-        className="w-full resize-y rounded-2xl border-[1.5px] border-[#e3e9f2] bg-white px-[18px] py-4 text-[15px] leading-[1.6] text-[#16243b] outline-none"
-        style={{ minHeight: 110 }}
+      <StepHeading
+        title={<>Anything you&apos;re hoping for? <span className="text-[20px] font-medium italic" style={{ color: "var(--dg-muted)" }}>(optional)</span></>}
+        sub="Totally optional. Leave it blank and we'll show you everything you qualify for, ranked by how safely you clear the cutoff."
       />
-      <div className="mt-[9px] flex items-start gap-2 text-[13px] leading-[1.5] text-[#9aa7be]">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" className="mt-[2px] flex-shrink-0">
-          <path d="M12 2L3 7l9 5 9-5-9-5z" fill="#aab5c8" />
-        </svg>
-        This affects your ranking — programmes whose content matches what you write here
-        are ranked higher using semantic similarity.
+      <div className="mb-[20px]">
+        <label className="mb-[11px] block text-[13px] font-semibold" style={{ color: "var(--dg-ink)" }}>Preferred universities</label>
+        <div className="flex flex-wrap gap-[8px]">
+          {universities.map((u) => {
+            const sel = selectedUnis.includes(u.code);
+            return (
+              <button
+                key={u.code}
+                onClick={() => onToggleUni(u.code)}
+                className="rounded-full px-[14px] py-[9px] text-[13.5px] font-medium transition-all"
+                style={{
+                  background: sel ? "var(--dg-accent)" : "var(--dg-surface)",
+                  color: sel ? "var(--dg-accent-ink)" : "var(--dg-ink)",
+                  border: `1px solid ${sel ? "var(--dg-accent)" : "var(--dg-border)"}`,
+                }}
+              >
+                {u.short_name || u.code}
+              </button>
+            );
+          })}
+        </div>
       </div>
+      <div className="mb-[6px]">
+        <label className="mb-[11px] block text-[13px] font-semibold" style={{ color: "var(--dg-ink)" }}>What are you interested in?</label>
+        <textarea
+          value={interests}
+          onChange={(e) => onInterests(e.target.value)}
+          rows={3}
+          placeholder="e.g. I love problem-solving and coding, and want a degree with strong job prospects."
+          className="w-full resize-y rounded-[12px] px-[15px] py-[13px] text-[15px] leading-[1.5] outline-none"
+          style={{ background: "var(--dg-surface)", border: "1px solid var(--dg-border)", color: "var(--dg-ink)", minHeight: 92 }}
+        />
+      </div>
+      <p className="mt-[9px] text-[13px] leading-[1.5]" style={{ color: "var(--dg-muted)" }}>
+        Programmes whose content matches what you write here are ranked higher using semantic similarity.
+      </p>
     </section>
   );
 }

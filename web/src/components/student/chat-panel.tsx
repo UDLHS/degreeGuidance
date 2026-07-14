@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 
-const ACCENT = "#2b5fd0";
-
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -197,25 +195,26 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
   // ── History panel ─────────────────────────────────────────────────────────
 
   const historyPanel = showHistory && isStudent && (
-    <div className="border-b border-[#e3e9f2] bg-[#f8fafd]">
+    <div style={{ borderBottom: "1px solid var(--dg-border)", background: "var(--dg-surface2)" }}>
       <div className="px-4 py-3">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#9aa7be]">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--dg-muted)" }}>
           Previous chats
         </p>
         {historyLoading && (
-          <p className="text-[13px] text-[#9aa7be]">Loading…</p>
+          <p className="text-[13px]" style={{ color: "var(--dg-muted)" }}>Loading…</p>
         )}
         {!historyLoading && history.length === 0 && (
-          <p className="text-[13px] text-[#9aa7be]">No previous chats yet.</p>
+          <p className="text-[13px]" style={{ color: "var(--dg-muted)" }}>No previous chats yet.</p>
         )}
         {!historyLoading && history.map((h) => (
           <button
             key={h.conversation_id}
             onClick={() => resumeConversation(h.conversation_id)}
-            className="mb-1 w-full rounded-[10px] px-3 py-2 text-left text-[13px] text-[#16243b] transition-colors hover:bg-[#e8eef8]"
+            className="mb-1 w-full rounded-[10px] px-3 py-2 text-left text-[13px] transition-colors hover:brightness-95"
+            style={{ color: "var(--dg-ink)", background: "var(--dg-surface)" }}
           >
             <span className="line-clamp-1">{h.preview}</span>
-            <span className="mt-[2px] block text-[11px] text-[#9aa7be]">
+            <span className="mt-[2px] block text-[11px]" style={{ color: "var(--dg-muted)" }}>
               {h.message_count} messages · {new Date(h.updated_at).toLocaleDateString()}
             </span>
           </button>
@@ -226,64 +225,69 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
 
   // ── Shared sub-components ─────────────────────────────────────────────────
 
+  const headerBtn =
+    "flex items-center gap-[5px] rounded-lg px-3 py-[6px] text-[12px] font-semibold transition-colors";
+  const headerBtnStyle: React.CSSProperties = {
+    background: "var(--dg-surface2)",
+    color: "var(--dg-ink)",
+    border: "1px solid var(--dg-border)",
+  };
+
   const chatHeader = (
-    <div className="flex items-center gap-3 px-5 py-4" style={{ background: ACCENT }}>
-      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2L3 7l9 5 9-5-9-5z" fill="#fff" />
-          <path d="M3 12l9 5 9-5M3 17l9 5 9-5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <div
+      className="flex items-center gap-3 px-5 py-4"
+      style={{ background: "var(--dg-surface)", borderBottom: "1px solid var(--dg-border)" }}
+    >
+      <div
+        className="flex h-9 w-9 items-center justify-center rounded-full"
+        style={{ background: "var(--dg-accent)", color: "var(--dg-accent-ink)" }}
+      >
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 8V4H8" />
+          <rect x="4" y="8" width="16" height="12" rx="2" />
+          <path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
         </svg>
       </div>
       <div className="flex-1">
-        <div className="text-[14px] font-bold text-white">Degree Guide AI</div>
+        <div className="text-[14px] font-bold" style={{ color: "var(--dg-ink)" }}>Degree Guide AI</div>
         {isStudent
-          ? <div className="text-[11px] text-white/70">{session?.user?.name ?? session?.user?.email}</div>
-          : <div className="text-[11px] text-white/70">Powered by Gemini</div>
+          ? <div className="text-[11px]" style={{ color: "var(--dg-muted)" }}>{session?.user?.name ?? session?.user?.email}</div>
+          : <div className="text-[11px]" style={{ color: "var(--dg-muted)" }}>Powered by Gemini</div>
         }
       </div>
       <div className="flex items-center gap-2">
         {isStudent && inline && (
-          <button
-            onClick={toggleHistory}
-            title="Chat history"
-            className="flex items-center gap-[5px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="#fff" strokeWidth="1.8" />
-              <path d="M12 7v5l3 3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+          <button onClick={toggleHistory} title="Chat history" className={headerBtn} style={headerBtnStyle}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 7v5l3 3" />
             </svg>
             History
           </button>
         )}
         {!isStudent ? (
-          <button
-            onClick={() => signIn("google", { callbackUrl: "/" })}
-            className="flex items-center gap-[5px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="12" cy="7" r="4" stroke="#fff" strokeWidth="1.8" />
+          <button onClick={() => signIn("google", { callbackUrl: "/" })} className={headerBtn} style={headerBtnStyle}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
             </svg>
             Sign in
           </button>
         ) : (
-          <button
-            onClick={() => signOut({ callbackUrl: "/" })}
-            title="Sign out"
-            className="flex items-center justify-center rounded-lg bg-white/15 p-[6px] text-white transition-colors hover:bg-white/25"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <button onClick={() => signOut({ callbackUrl: "/" })} title="Sign out" className={headerBtn} style={headerBtnStyle}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
             </svg>
           </button>
         )}
         {inline && (
           <button
             onClick={handleNewChat}
-            className="flex items-center gap-[6px] rounded-lg bg-white/15 px-3 py-[6px] text-[12px] font-semibold text-white transition-colors hover:bg-white/25"
+            className="flex items-center gap-[6px] rounded-lg px-3 py-[6px] text-[12px] font-semibold transition-colors"
+            style={{ background: "var(--dg-accent)", color: "var(--dg-accent-ink)" }}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-              <path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
             </svg>
             New Chat
           </button>
@@ -300,8 +304,8 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
             className="max-w-[85%] rounded-[16px] px-4 py-[10px] text-[14px] leading-[1.55]"
             style={
               msg.role === "user"
-                ? { background: ACCENT, color: "#fff", borderBottomRightRadius: 4 }
-                : { background: "#f4f6fb", color: "#16243b", borderBottomLeftRadius: 4 }
+                ? { background: "var(--dg-accent)", color: "var(--dg-accent-ink)", borderBottomRightRadius: 4 }
+                : { background: "var(--dg-surface2)", color: "var(--dg-ink)", borderBottomLeftRadius: 4 }
             }
           >
             <MessageContent content={msg.content} />
@@ -309,7 +313,7 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
           {msg.tools && msg.tools.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {msg.tools.map((t) => (
-                <span key={t} className="rounded-full px-2 py-[2px] text-[10px] font-semibold" style={{ background: "#e8eef8", color: "#4a6fa5" }}>
+                <span key={t} className="rounded-full px-2 py-[2px] text-[10px] font-semibold" style={{ background: "var(--dg-accent-soft)", color: "var(--dg-accent)" }}>
                   {t.replace(/_/g, " ")}
                 </span>
               ))}
@@ -319,29 +323,32 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
       ))}
       {loading && (
         <div className="flex items-start">
-          <div className="rounded-[16px] px-4 py-[10px]" style={{ background: "#f4f6fb", borderBottomLeftRadius: 4 }}>
+          <div className="rounded-[16px] px-4 py-[10px]" style={{ background: "var(--dg-surface2)", borderBottomLeftRadius: 4 }}>
             <Dots />
           </div>
         </div>
       )}
-      {error && <p className="text-center text-[12px] text-[#b4485f]">{error}</p>}
+      {error && <p className="text-center text-[12px]" style={{ color: "var(--dg-amb-fg)" }}>{error}</p>}
       <div ref={bottomRef} />
     </div>
   );
 
   const inputBar = (
-    <div className="border-t border-[#e9eef6] px-4 py-3">
-      <div className="flex items-end gap-2 rounded-[14px] border-[1.5px] border-[#e3e9f2] bg-[#f9fafc] px-3 py-2">
+    <div style={{ borderTop: "1px solid var(--dg-border)" }} className="px-4 py-3">
+      <div
+        className="flex items-end gap-2 rounded-[14px] px-3 py-2"
+        style={{ border: "1.5px solid var(--dg-border)", background: "var(--dg-surface2)" }}
+      >
         <button
           type="button"
           onClick={() => setWebSearch((v) => !v)}
           title={webSearch ? "Web search on" : "Web search off"}
           className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full transition-colors"
-          style={{ background: webSearch ? ACCENT : "#e3e9f2" }}
+          style={{ background: webSearch ? "var(--dg-accent)" : "var(--dg-track)", color: webSearch ? "var(--dg-accent-ink)" : "var(--dg-muted)" }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="10" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" />
-            <path d="M12 2C12 2 8 7 8 12s4 10 4 10M12 2c0 0 4 5 4 10s-4 10-4 10M2 12h20" stroke={webSearch ? "#fff" : "#9aa7be"} strokeWidth="1.8" strokeLinecap="round" />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 2C12 2 8 7 8 12s4 10 4 10M12 2c0 0 4 5 4 10s-4 10-4 10M2 12h20" />
           </svg>
         </button>
         <textarea
@@ -356,21 +363,21 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
           onKeyDown={handleKey}
           placeholder="Ask about any degree, cutoff, or career…"
           disabled={loading}
-          className="flex-1 resize-none bg-transparent text-[14px] leading-[1.5] text-[#16243b] outline-none placeholder:text-[#9aa7be] disabled:opacity-50"
-          style={{ maxHeight: 96, minHeight: 22 }}
+          className="flex-1 resize-none bg-transparent text-[14px] leading-[1.5] outline-none disabled:opacity-50"
+          style={{ maxHeight: 96, minHeight: 22, color: "var(--dg-ink)" }}
         />
         <button
           onClick={send}
           disabled={!input.trim() || loading}
           className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-40"
-          style={{ background: input.trim() && !loading ? ACCENT : "#cdd6e8" }}
+          style={{ background: input.trim() && !loading ? "var(--dg-accent)" : "var(--dg-border)", color: "var(--dg-accent-ink)" }}
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z" />
           </svg>
         </button>
       </div>
-      <p className="mt-[6px] text-center text-[11px] text-[#b0baca]">
+      <p className="mt-[6px] text-center text-[11px]" style={{ color: "var(--dg-muted)" }}>
         {isStudent
           ? "Your chats are saved to your account."
           : <>Sign in to save history. · AI can make mistakes — verify at ugc.ac.lk.</>
@@ -383,7 +390,7 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
 
   if (inline) {
     return (
-      <div className="flex flex-col" style={{ minHeight: "calc(100vh - 120px)" }}>
+      <div className="mx-auto mt-4 flex w-full max-w-[820px] flex-col overflow-hidden rounded-[18px]" style={{ minHeight: "calc(100vh - 200px)", border: "1px solid var(--dg-border)", background: "var(--dg-surface)", boxShadow: "var(--dg-shadow)" }}>
         {chatHeader}
         {historyPanel}
         {messageList}
@@ -398,25 +405,25 @@ export function ChatPanel({ context, inline = false, onNewChat }: ChatPanelProps
     <>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-[0_6px_24px_rgba(43,95,208,.35)] transition-transform hover:scale-105"
-        style={{ background: ACCENT }}
+        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full transition-transform hover:scale-105"
+        style={{ background: "var(--dg-accent)", color: "var(--dg-accent-ink)", boxShadow: "var(--dg-shadow)" }}
         aria-label="Ask AI degree guide"
       >
         {open ? (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M18 6L6 18M6 6l12 12" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         ) : (
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
           </svg>
         )}
       </button>
 
       {open && (
         <div
-          className="fixed bottom-24 right-6 z-50 flex w-[380px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[22px] shadow-[0_16px_48px_rgba(22,36,59,.18)]"
-          style={{ height: "520px", border: "1.5px solid #e3e9f2", background: "#fff" }}
+          className="fixed bottom-24 right-6 z-50 flex w-[380px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[22px]"
+          style={{ height: "520px", border: "1px solid var(--dg-border)", background: "var(--dg-surface)", boxShadow: "0 16px 48px rgba(22,36,59,.18)" }}
         >
           {chatHeader}
           {messageList}
@@ -459,7 +466,7 @@ function Dots() {
           key={i}
           className="block h-[7px] w-[7px] rounded-full"
           style={{
-            background: "#9aa7be",
+            background: "var(--dg-muted)",
             animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
           }}
         />
