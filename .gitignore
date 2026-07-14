@@ -28,6 +28,12 @@ desktop.ini
 *.swp
 *.swo
 
+# Backup / temp files (never commit)
+*.bak
+*.tmp
+*.orig
+*.rej
+
 # Data — never commit raw handbooks, OCR outputs, or uploaded files
 data/raw/
 data/output/
@@ -49,8 +55,9 @@ out/
 *.pem
 *.key
 
-# Windows download-marker ADS files (WSL shows them as real files)
-*:Zone.Identifier
+# Windows download-marker ADS files (WSL shows them as real files;
+# the separator is a Unicode colon U+F03A, so match the suffix broadly)
+*Zone.Identifier
 
 # Claude Code session-local state
 .claude/
