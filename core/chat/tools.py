@@ -284,6 +284,11 @@ async def lookup_course(session: AsyncSession, course_number: str) -> str:
     # per-stream overrides too (e.g. 107L Food Business Management has no
     # general cutoff -- see course_stream_cutoff_overrides) so a stream-split
     # course doesn't silently disappear from this factsheet.
+    # The label must state the ACTUAL latest year (multiple A/L years are now
+    # loaded) — never a hardcoded one — so the agent quotes the right year.
+    latest_year = (
+        await session.execute(text("SELECT MAX(year) FROM z_score_cutoffs"))
+    ).scalar()
     cutoff_rows = (await session.execute(
         text(
             "SELECT cu.course_code, d.name_en AS district_name, cu.z_score, NULL AS stream_name "
@@ -313,7 +318,9 @@ async def lookup_course(session: AsyncSession, course_number: str) -> str:
             + f"): {float(r.z_score):.4f}"
             for r in cutoff_rows
         ]
-        cutoff_block = "**Recent Z-score cutoffs (2023, by district):**\n" + "\n".join(cutoff_lines)
+        cutoff_block = (
+            f"**Recent Z-score cutoffs ({latest_year}, by district):**\n" + "\n".join(cutoff_lines)
+        )
         return f"{factsheet}\n\n{cutoff_block}"
 
     return factsheet

@@ -210,9 +210,11 @@ def _build_system_prompt(
                     f"| {c['cutoff']:.4f} | {margin_str} | {bucket} |"
                 )
             lines.append(
-                "\n**Safe** = comfortably above cutoff. "
-                "**Ambitious** = right at the edge (within ~0.05). "
-                "**Consider** = worth knowing about.\n"
+                "\n**Safe** = comfortably above the cutoff. "
+                "**Consider** = eligible, with less headroom above the cutoff.\n"
+                "(Every course in this table is one the student is ELIGIBLE for. Courses that "
+                "sit just ABOVE their score — the separate 'Ambitious'/later-rounds set — are "
+                "NOT in this table; never present those as courses they can currently get into.)\n"
                 "When the student asks 'I like X, what should I choose?' — scan this table for "
                 "courses matching their interest, then explain WHY each one fits, using "
                 "`lookup_course` to get more detail if needed."

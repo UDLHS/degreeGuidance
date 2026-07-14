@@ -245,24 +245,22 @@ calling `find_course` first"), a mandatory answer format, and eight rules
 
 ---
 
-## Known gotchas (flagged for a freshness pass)
+## Freshness fixes (applied)
 
-Two spots are currently **stale relative to recent changes** — harmless today
-but worth fixing, since the agent is being told something slightly outdated:
+Two spots had gone stale relative to recent changes and were fixed in the same
+pass that produced this documentation:
 
-1. **The injected eligible-table legend still describes the old "Ambitious"
-   meaning** (`orchestrator.py`, in `_build_system_prompt`): it says *"Ambitious
-   = right at the edge (within ~0.05)"*. But the 2026-07-13 rework made
-   "Ambitious" the *above-your-score* later-rounds tab, and the eligible list
-   passed to chat now contains only `safe`/`consider` buckets. The agent is
-   taught a bucket that no longer appears.
-2. **`lookup_course` hard-codes "2023" in its cutoff label** (`tools.py`): the
-   query correctly uses `MAX(year)` (so it returns the latest year's data) but
-   prints "Recent Z-score cutoffs (2023, by district)". The agent may quote the
-   wrong year to a student.
-
-Both are ~10-minute fixes; see `16-design-decisions.md` (principle 2,
-year-agnostic) for why they matter.
+1. **The injected eligible-table legend** (`orchestrator.py`,
+   `_build_system_prompt`) used to say *"Ambitious = right at the edge (within
+   ~0.05)"*. But the 2026-07-13 rework made "Ambitious" the *above-your-score*
+   later-rounds tab, and the eligible list passed to chat now contains only
+   `safe`/`consider` buckets. The legend now describes only Safe/Consider and
+   explicitly notes the Ambitious/later-rounds set is **not** in the eligible
+   table (so the agent never presents it as reachable).
+2. **`lookup_course` hard-coded "2023"** in its cutoff label (`tools.py`) even
+   though the query uses `MAX(year)`. It now fetches the latest year and prints
+   it, so the agent always quotes the correct year (principle 2, year-agnostic —
+   see `16-design-decisions.md`).
 
 ---
 
