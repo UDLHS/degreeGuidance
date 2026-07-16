@@ -114,10 +114,32 @@ Run the audit at confirm/promote and show disagreements on the run page:
 "N existing courses disagree with this book" + the two severities. This is what
 finds the next 131 instead of luck. Report-only; an admin decides.
 
-### 9.4 — factsheet / knowledge draft
-Wrap `scripts/generate_factsheets.py` as an arq worker job. Input: book details
-(authoritative) + web enrichment (D3). Output: **draft** → factsheet editor →
-admin approves → `index_factsheets` embeds it. Never indexed while draft (D4).
+### 9.4 — factsheet / knowledge draft — **DONE (2026-07-16, factsheet half)**
+Built as designed, with one structural improvement: drafts live in their own
+`factsheet_drafts` table (migration 44) that the index job never reads — so D4
+is enforced by architecture, not by a filter someone can forget. Pieces:
+
+- `apps/worker/jobs/generate_factsheet.py` — arq job; source order is the law:
+  book facts from the run's `course_details.json` (verbatim requirements, page,
+  streams, intake) → catalog facts → DDG web colour (degrades gracefully,
+  recorded in provenance). Gemini writes prose only. Failure lands LOUD on the
+  row (`status='failed'` + error).
+- Approve endpoint = the ONE door: copies the (possibly admin-edited) text into
+  `factsheets` through the same versioned/audited/auto-reindexed path as a hand
+  edit, deletes the draft in the same transaction.
+- `apply_changes` auto-queues a draft for every newly created course (with the
+  run's book pinned), best-effort — a queue outage never fails the apply.
+- UI: draft review panel in the factsheet editor (provenance + the
+  `streams_may_be_incomplete` warning inline; Approve unlocks only after the
+  draft is loaded into the editor — what you see is what goes live), badges +
+  "drafts to review" filter on the Factsheets list.
+- Tests: `tests/integration/test_factsheet_drafts.py` (9) + apply-auto-queue
+  pin in the gate suite. 392 passing. Verified end-to-end in the running admin
+  UI (login → list badge → panel → approve → v1 + reindex queued).
+
+Still open from this item: KNOWLEDGE-article drafts (same mechanism, articles
+table) — decide whether a new course warrants an article at all, or whether
+factsheets cover it; revisit alongside 9.5.
 
 ### 9.5 — make the work visible
 "New courses" filter + badge on Courses; banners on Factsheets / Knowledge /

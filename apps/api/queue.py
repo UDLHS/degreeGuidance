@@ -44,6 +44,20 @@ async def enqueue_index_factsheet(*, course_number: str) -> None:
         await pool.aclose()
 
 
+async def enqueue_generate_factsheet_draft(
+    *, course_number: str, run_id: str | None = None
+) -> None:
+    """Enqueue factsheet-draft generation (Phase 9.4). run_id pins which book's
+    course_details the draft is grounded in; None uses the newest ingested."""
+    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    try:
+        await pool.enqueue_job(
+            "generate_factsheet_draft_job", course_number=course_number, run_id=run_id
+        )
+    finally:
+        await pool.aclose()
+
+
 async def enqueue_index_article(*, article_id: int) -> None:
     """Enqueue a single-article reindex (admin Articles save path — Phase 8.6)."""
     pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))

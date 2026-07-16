@@ -25,7 +25,7 @@ from core.models.eligibility import CourseMedium, EligibilityAudit
 from core.models.auth import AdminAction, AuthEvent, User
 from core.models.scoring import ScoringConfig
 from core.models.course_requirements import CourseRequirement
-from core.models.rag import Article, Chunk, DocumentSource, Factsheet
+from core.models.rag import Article, Chunk, DocumentSource, Factsheet, FactsheetDraft
 from core.models.chat import AgentConfig, Conversation, Message
 __all__ = [
     "District", "Faculty", "Medium", "SpecialProvisionCategory",
@@ -38,6 +38,6 @@ __all__ = [
     "User", "AdminAction", "AuthEvent",
     "ScoringConfig",
     "CourseRequirement",
-    "DocumentSource", "Chunk", "Factsheet", "Article",
+    "DocumentSource", "Chunk", "Factsheet", "FactsheetDraft", "Article",
     "Conversation", "Message", "AgentConfig",
 ]

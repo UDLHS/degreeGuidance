@@ -15,6 +15,7 @@ type Item = {
   updated_at: string | null;
   index_status: "missing" | "not_indexed" | "stale" | "indexed";
   chunk_count: number;
+  draft_status: "queued" | "ready" | "failed" | "rejected" | null;
 };
 type ListResponse = { total: number; counts: Record<string, number>; items: Item[] };
 
@@ -29,6 +30,19 @@ const STATUS_LABEL: Record<string, string> = {
   stale: "stale index",
   not_indexed: "not indexed",
   missing: "no factsheet",
+};
+// Machine drafts awaiting a human (Phase 9.4) — never indexed until approved.
+const DRAFT_STYLE: Record<string, string> = {
+  queued: "bg-violet-100 text-violet-800 animate-pulse",
+  ready: "bg-violet-100 text-violet-800",
+  failed: "bg-red-100 text-red-800",
+  rejected: "bg-muted text-muted-foreground",
+};
+const DRAFT_LABEL: Record<string, string> = {
+  queued: "draft generating…",
+  ready: "draft ready",
+  failed: "draft failed",
+  rejected: "draft rejected",
 };
 
 export default function FactsheetsPage() {
@@ -47,10 +61,18 @@ export default function FactsheetsPage() {
     load();
   }, [load]);
 
+  const draftCount = useMemo(
+    () =>
+      data ? data.items.filter((i) => i.draft_status === "ready" || i.draft_status === "failed").length : 0,
+    [data],
+  );
+
   const items = useMemo(() => {
     if (!data) return [];
     let out = data.items;
-    if (filter) out = out.filter((i) => i.index_status === filter);
+    if (filter === "drafts")
+      out = out.filter((i) => i.draft_status === "ready" || i.draft_status === "failed");
+    else if (filter) out = out.filter((i) => i.index_status === filter);
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
       out = out.filter(
@@ -94,6 +116,18 @@ export default function FactsheetsPage() {
               </button>
             ))
           : null}
+        {draftCount > 0 ? (
+          <button
+            onClick={() => setFilter(filter === "drafts" ? null : "drafts")}
+            className={cn(
+              "rounded-md px-2 py-1 text-xs font-medium transition-opacity",
+              DRAFT_STYLE.ready,
+              filter && filter !== "drafts" && "opacity-40",
+            )}
+          >
+            {draftCount} draft{draftCount === 1 ? "" : "s"} to review
+          </button>
+        ) : null}
       </div>
 
       {err ? <p className="text-sm text-destructive">{err}</p> : null}
@@ -116,6 +150,16 @@ export default function FactsheetsPage() {
               {i.version ? (
                 <span className="text-xs text-muted-foreground">
                   v{i.version} · {i.chunk_count} chunks
+                </span>
+              ) : null}
+              {i.draft_status ? (
+                <span
+                  className={cn(
+                    "rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                    DRAFT_STYLE[i.draft_status],
+                  )}
+                >
+                  {DRAFT_LABEL[i.draft_status]}
                 </span>
               ) : null}
               <span

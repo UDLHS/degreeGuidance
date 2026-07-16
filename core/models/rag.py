@@ -18,7 +18,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
@@ -38,6 +38,47 @@ class Factsheet(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class FactsheetDraft(Base):
+    """A machine-written factsheet awaiting a human (Phase 9.4; decisions D3/D4).
+
+    Deliberately a SEPARATE table from factsheets: the index job reads the
+    factsheets table and nothing else, so an unreviewed draft is structurally
+    incapable of reaching the AI advisor. Approval — an admin's explicit click —
+    is the only door, and it copies the text into factsheets through the same
+    versioned, audited, auto-reindexed path as a hand edit.
+
+    One row per course number, same natural key as factsheets. Lifecycle:
+    queued (job enqueued) → ready (awaiting review) | failed (error recorded —
+    fail loud, never silently absent) ; rejected keeps the row so the page can
+    say what happened. A new generation replaces the row; approve deletes it.
+    """
+
+    __tablename__ = "factsheet_drafts"
+
+    course_number: Mapped[str] = mapped_column(String(10), primary_key=True)
+    #: queued | ready | failed | rejected
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'queued'")
+    )
+    #: the generated markdown — NULL until the job finishes
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: why generation failed, when status='failed'
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: where the draft's facts came from: ingestion run, book page, streams as
+    #: the book states them, web-result count, model — so the reviewer can
+    #: check every claim against its source
+    provenance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.user_id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(

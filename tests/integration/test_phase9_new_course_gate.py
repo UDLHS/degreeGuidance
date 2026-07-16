@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -34,12 +35,31 @@ async def _purge(db: AsyncSession) -> None:
         text("DELETE FROM course_stream_eligibility WHERE course_code = :c"), {"c": COURSE}
     )
     await db.execute(text("DELETE FROM handbook_changes WHERE course_code = :c"), {"c": COURSE})
+    # apply auto-queues a factsheet draft for the new course (Phase 9.4)
+    await db.execute(
+        text("DELETE FROM factsheet_drafts WHERE course_number = :n"), {"n": COURSE[:3]}
+    )
     await db.execute(text("DELETE FROM courses WHERE course_code = :c"), {"c": COURSE})
     await db.execute(
         text("DELETE FROM ingestion_runs WHERE year = :y AND run_type = 'pdf_extraction'"),
         {"y": SENTINEL_YEAR},
     )
     await db.commit()
+
+
+@pytest.fixture(autouse=True)
+def _no_draft_queue(monkeypatch):
+    """apply auto-enqueues factsheet-draft generation (9.4) — spy it out so
+    these tests need no Redis and leave nothing on the queue."""
+    calls: list[dict] = []
+
+    async def _fake(*, course_number: str, run_id: str | None = None):
+        calls.append({"course_number": course_number, "run_id": run_id})
+
+    monkeypatch.setattr(
+        "apps.api.routers.admin_ingestions.enqueue_generate_factsheet_draft", _fake
+    )
+    return calls
 
 
 @pytest_asyncio.fixture
@@ -463,3 +483,34 @@ async def test_promote_allows_a_rejected_new_course(
 
     blockers = await _unfinished_new_courses(db_session, uuid.UUID(gate["run_id"]))
     assert blockers == []
+
+
+async def test_apply_auto_queues_a_factsheet_draft(
+    client: AsyncClient, gate: dict, db_session: AsyncSession, _no_draft_queue: list
+):
+    """Phase 9.4: a course that just arrived gets its factsheet draft started
+    from this book, so the slot the admin sees is pre-filled, never empty."""
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["ARTS"],
+        },
+    )
+    assert r.status_code == 200
+    r = await client.post(
+        f"/api/admin/ingestions/{gate['run_id']}/changes/apply", headers=_auth(gate["token"])
+    )
+    assert r.status_code == 200, r.text
+
+    assert _no_draft_queue == [{"course_number": COURSE[:3], "run_id": gate["run_id"]}]
+    status = (
+        await db_session.execute(
+            text("SELECT status FROM factsheet_drafts WHERE course_number = :n"),
+            {"n": COURSE[:3]},
+        )
+    ).scalar_one()
+    assert status == "queued"

@@ -30,6 +30,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import os
 import tempfile
 import uuid
@@ -56,7 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin_audit import log_admin_action
 from apps.api.dependencies import get_current_admin, get_db
-from apps.api.queue import enqueue_extract_pdf
+from apps.api.queue import enqueue_extract_pdf, enqueue_generate_factsheet_draft
 from apps.worker.jobs.ingest_zscores import (
     apply_stream_overrides,
     apply_unmapped_cutoffs,
@@ -105,6 +106,8 @@ from core.schemas.admin_ingestion import (
     MappingConfirmResponse,
     ParseErrorOut,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/admin",
@@ -1480,6 +1483,7 @@ async def apply_changes(
     ).scalars().all()
 
     applied_removed = applied_added = 0
+    created_numbers: list[str | None] = []
     skipped: list[dict] = []
     now = datetime.now(timezone.utc)
     # stream code -> id, resolved once for the course_added inserts below
@@ -1567,8 +1571,43 @@ async def apply_changes(
                 request=request, notes=f"handbook-sync addition (run {run_id})",
             )
             applied_added += 1
+            created_numbers.append(course_number)
 
     await db.commit()
+
+    # Phase 9.4 — a course just arrived; start writing its factsheet DRAFT from
+    # this book's own facts, so the slot the admin sees is pre-filled instead
+    # of empty. Draft-only (D4: nothing reaches the advisor until approved),
+    # and strictly best-effort: a queue outage must never fail the apply.
+    for num in dict.fromkeys(created_numbers):  # de-duped, insertion order
+        if num is None:
+            continue
+        has_factsheet = (
+            await db.execute(
+                text("SELECT 1 FROM factsheets WHERE course_number = :cn"), {"cn": num}
+            )
+        ).first()
+        if has_factsheet:
+            continue
+        try:
+            await db.execute(
+                text(
+                    "INSERT INTO factsheet_drafts (course_number, status) "
+                    "VALUES (:cn, 'queued') "
+                    "ON CONFLICT (course_number) DO UPDATE SET "
+                    "  status = 'queued', content = NULL, error = NULL, "
+                    "  provenance = NULL, updated_at = now()"
+                ),
+                {"cn": num},
+            )
+            await db.commit()
+            await enqueue_generate_factsheet_draft(course_number=num, run_id=str(run_id))
+        except Exception:  # noqa: BLE001 - best-effort; the button still exists
+            await db.rollback()
+            logger.warning(
+                "could not enqueue factsheet draft for course number %s", num, exc_info=True
+            )
+
     return ChangeApplyResponse(
         applied_removed=applied_removed, applied_added=applied_added, skipped=skipped
     )

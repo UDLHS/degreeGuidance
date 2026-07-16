@@ -14,13 +14,19 @@ from __future__ import annotations
 from arq.connections import RedisSettings
 
 from apps.worker.jobs.extract_pdf import extract_pdf_job
+from apps.worker.jobs.generate_factsheet import generate_factsheet_draft_job
 from apps.worker.jobs.index_articles import index_article_job
 from apps.worker.jobs.index_factsheets import index_factsheet_job
 from core.config import settings
 
 
 class WorkerSettings:
-    functions = [extract_pdf_job, index_factsheet_job, index_article_job]
+    functions = [
+        extract_pdf_job,
+        index_factsheet_job,
+        index_article_job,
+        generate_factsheet_draft_job,
+    ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     # Arq defaults to 300 s, which killed big-book extractions mid-run (the
     # 15 MB 2025 handbook needs ~8-10 min on a free-tier CPU). See
