@@ -6,6 +6,7 @@ import { ArrowLeft, Download, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CatalogAuditCard } from "@/components/admin/catalog-audit-card";
 import { ChangeSetReview } from "@/components/admin/change-set-review";
 import { ColumnMappingReview } from "@/components/admin/column-mapping-review";
 import { Input } from "@/components/ui/input";
@@ -141,7 +142,23 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
       if (data.checklist) setChecklist(data.checklist);
       setReviewFile(null);
     } else {
-      setMsg({ ok: false, text: data?.detail ?? `Promote failed (${res.status}).` });
+      // Phase 9.3: a blocked promote returns a STRUCTURED detail listing the new
+      // courses that still need work. Flatten it — rendering the object itself
+      // would crash the page ("Objects are not valid as a React child").
+      const d = data?.detail;
+      let text = `Promote failed (${res.status}).`;
+      if (typeof d === "string") {
+        text = d;
+      } else if (d?.message) {
+        const unfinished = (d.unfinished_new_courses ?? []) as {
+          course_code: string;
+          reason: string;
+        }[];
+        text = unfinished.length
+          ? `${d.message} — ${unfinished.map((u) => `${u.course_code} (${u.reason})`).join("; ")}`
+          : String(d.message);
+      }
+      setMsg({ ok: false, text });
     }
     load();
   }
@@ -321,6 +338,9 @@ export default function RunDetailPage({ params }: { params: { runId: string } })
       ) : null}
 
       {isExtraction && detail.status === "success" ? <ChangeSetReview runId={runId} /> : null}
+      {/* the change-set guards courses arriving; this guards the ones already
+          here (Phase 9.3b) — see catalog-audit-card */}
+      {isExtraction && detail.status === "success" ? <CatalogAuditCard runId={runId} /> : null}
 
       {detail.parse_error_count > 0 ? (
         <div>

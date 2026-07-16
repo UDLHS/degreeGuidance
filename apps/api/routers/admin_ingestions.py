@@ -34,6 +34,7 @@ import os
 import tempfile
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -71,6 +72,9 @@ from core.ingestion.artifact_store import (
     local_artifact_path,
     put_artifact,
 )
+from core.ingestion.catalog_audit import audit_streams
+from core.ingestion.column_mapper import normalize_label
+from core.ingestion.course_details import details_from_artifact
 from core.ingestion.grid_extractor import DISTRICTS_ORDER, parse_pages_spec
 from core.ingestion.handbook_diff import compute_handbook_diff, record_changes
 from core.ingestion.stream_tags import resolve_group_streams, suggest_stream_codes
@@ -84,6 +88,8 @@ from core.models.cutoffs import (
 )
 from core.schemas.admin_ingestion import (
     BulkConfirmResponse,
+    CatalogAuditItem,
+    CatalogAuditResponse,
     ChangeApplyResponse,
     ColumnListResponse,
     ColumnUpdate,
@@ -470,6 +476,108 @@ async def download_ingestion_csv(
     )
 
 
+@router.get("/ingestions/{run_id}/catalog-audit", response_model=CatalogAuditResponse)
+async def catalog_audit(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+) -> CatalogAuditResponse:
+    """Phase 9.3b — measure the LIVE catalog against this book.
+
+    The gate protects new courses; this protects the ones already here. Financial
+    Economics/131 was offered to all six streams for a year when the book grants
+    only Arts and Commerce — nobody was wrong on purpose, nothing ever compared
+    the two. Read-only: it reports, an admin decides which side is right.
+
+    Reads the extraction's course_details.json artifact, so it costs a query
+    rather than re-opening the PDF. A run from before that artifact existed
+    simply reports nothing to compare.
+    """
+    run = await db.get(IngestionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
+
+    raw = await load_artifact(db, str(run_id), "course_details.json")
+    details = details_from_artifact(json.loads(raw)) if raw is not None else {}
+    found = await audit_streams(db, details)
+    # invisible first: it costs a student a degree they could have had, whereas
+    # over_granted shows them one they cannot take.
+    found.sort(key=lambda d: (d.severity != "invisible", d.course_number))
+    return CatalogAuditResponse(
+        exam_year=run.year,
+        courses_in_book=len(details),
+        items=[
+            CatalogAuditItem(
+                course_number=d.course_number,
+                name=d.name,
+                book_streams=d.book_streams,
+                db_streams=d.db_streams,
+                only_in_book=d.only_in_book,
+                only_in_db=d.only_in_db,
+                page_number=d.page_number,
+                book_may_be_incomplete=d.book_may_be_incomplete,
+                severity=d.severity,
+            )
+            for d in found
+        ],
+    )
+
+
+async def _unfinished_new_courses(db: AsyncSession, run_id: uuid.UUID) -> list[dict]:
+    """Phase 9.3 — every new course in this run must be finished before the
+    year's cutoffs may promote. There are two ways a new course silently
+    disappears, and this closes both:
+
+    - still pending, or approved but never applied → the course row does not
+      exist, so its cutoff rows fail to load (`unknown_course_alias` in the
+      Step-4 loader) and the course is absent from the year entirely;
+    - applied but inactive or streamless → the row exists, but the engine can
+      never serve it (it requires a course_stream_eligibility match).
+
+    A rejected change IS finished — the admin decided. Returns the blockers.
+    """
+    rows = (
+        await db.execute(
+            text(
+                "SELECT ch.course_code, ch.status, "
+                "  (c.course_code IS NOT NULL) AS course_exists, "
+                "  COALESCE(c.is_active, false)  AS is_active, "
+                "  (SELECT count(*) FROM course_stream_eligibility cse "
+                "     WHERE cse.course_code = ch.course_code) AS stream_count "
+                "FROM handbook_changes ch "
+                "LEFT JOIN courses c ON c.course_code = ch.course_code "
+                "WHERE ch.run_id = :r AND ch.change_type = 'course_added' "
+                "ORDER BY ch.course_code"
+            ),
+            {"r": run_id},
+        )
+    ).all()
+
+    blockers: list[dict] = []
+    for r in rows:
+        if r.status == "rejected":
+            continue
+        if r.status != "applied" or not r.course_exists:
+            blockers.append({
+                "course_code": r.course_code,
+                "reason": (
+                    f"not created yet (status={r.status}) — its cutoffs would be "
+                    "dropped and the course would be missing from this year"
+                ),
+            })
+        elif not r.is_active:
+            blockers.append({
+                "course_code": r.course_code,
+                "reason": "inactive — no student can see it",
+            })
+        elif r.stream_count == 0:
+            blockers.append({
+                "course_code": r.course_code,
+                "reason": "no eligible streams — invisible to every student",
+            })
+    return blockers
+
+
 @router.post("/ingestions/{run_id}/promote", response_model=IngestionCreateResponse)
 async def promote_ingestion(
     run_id: uuid.UUID,
@@ -496,6 +604,23 @@ async def promote_ingestion(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Extraction is not in 'success' state (status={run.status}).",
+        )
+    # Phase 9.3 — refuse BEFORE any work (snapshot/loader) while this book's new
+    # courses are unfinished. Previously the checklist only counted them after
+    # the fact, so a new course could promote straight into invisibility.
+    unfinished = await _unfinished_new_courses(db, run_id)
+    if unfinished:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    f"{len(unfinished)} new course(s) from this book are unfinished. "
+                    "Finish them in the change review (or reject the ones you don't "
+                    "want) before promoting — otherwise they are silently missing "
+                    "for students."
+                ),
+                "unfinished_new_courses": unfinished,
+            },
         )
     exam_year = run.year
     triggered_by = f"admin:{admin.user_id}:promote:{run_id}"
@@ -890,6 +1015,99 @@ async def confirm_suggested_columns(
     return BulkConfirmResponse(confirmed=confirmed, remaining_pending=remaining)
 
 
+async def _book_prefill(
+    db: AsyncSession,
+    artifact: dict,
+    by_code: dict[str, list[ExtractionColumn]],
+    course_details: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Phase 9.2 — what the BOOK already told us about each course, for the
+    new-course review gate: code -> {name_en, university_id, book_university,
+    book_page, suggested_stream_codes, book_requirements_text, book_intake,
+    streams_may_be_incomplete}.
+
+    Three sources, all already extracted:
+    - the book's own "Uni-Codes Assigned for each Course of Study" section
+      (core.ingestion.unicode_section), carried in this run's grid artifact as
+      book_code_rows — the book's authoritative name + university + page;
+    - the cutoff column's bracket tag (core.ingestion.stream_tags), which
+      SUGGESTS streams and returns [] when the book says nothing, so the admin
+      must still choose consciously;
+    - Section 2.2 (core.ingestion.course_details, artifact course_details.json,
+      keyed by the 3-digit course number) — the book's own statement of which
+      streams may apply, plus its requirement prose. This WINS over the bracket
+      tag: the tag is a hint on a cutoff column, §2.2 is the book stating the
+      rule. Where §2.2 could not be read completely, streams_may_be_incomplete
+      rides along so the gate can say so instead of quietly under-granting.
+
+    university_id resolves by exact NORMALISED name match only — never a fuzzy
+    guess. An unresolved university is simply left out and the book's raw string
+    is passed through for display, so the admin picks it rather than
+    rubber-stamping a wrong match.
+    """
+    out: dict[str, dict[str, Any]] = {}
+
+    unis = (await db.execute(text("SELECT university_id, name_en FROM universities"))).all()
+    uni_by_norm = {normalize_label(u.name_en): u.university_id for u in unis}
+
+    for r in artifact.get("book_code_rows") or []:
+        code = str(r.get("code") or "").strip().upper()
+        if not code:
+            continue
+        detail: dict[str, Any] = {}
+        if r.get("course_name"):
+            detail["name_en"] = str(r["course_name"]).strip()
+        raw_uni = str(r.get("university") or "").strip()
+        if raw_uni:
+            detail["book_university"] = raw_uni
+            uid = uni_by_norm.get(normalize_label(raw_uni))
+            if uid is not None:
+                detail["university_id"] = uid
+        if r.get("page_number") is not None:
+            detail["book_page"] = r["page_number"]
+        out[code] = detail
+
+    # Stream suggestion: the union of every tag across a code's columns. A split
+    # code (107L: Commerce vs Bio/Physical) is eligible for BOTH — the
+    # disjointness only decides which CUTOFF applies, not who may apply.
+    for code, grp in by_code.items():
+        suggested: list[str] = []
+        for col in grp:
+            for s in suggest_stream_codes(col.raw_label or ""):
+                if s not in suggested:
+                    suggested.append(s)
+        if suggested:
+            out.setdefault(code.strip().upper(), {})["suggested_stream_codes"] = sorted(suggested)
+
+    # Section 2.2 last: it is the book STATING the rule, so it overrides the
+    # bracket-tag hint above. Keyed by course number (019A -> 019), because the
+    # book documents a course once and the Uni-Code adds the university.
+    for code in list(out) + [c.strip().upper() for c in by_code]:
+        num = code[:3]
+        cd = (course_details or {}).get(num)
+        if not cd:
+            continue
+        detail = out.setdefault(code, {})
+        if cd.get("stream_codes"):
+            detail["suggested_stream_codes"] = sorted(cd["stream_codes"])
+        if cd.get("streams_may_be_incomplete"):
+            # the book also grants entry by subject list: what we read is a
+            # floor, so the admin must widen it rather than tick and move on
+            detail["streams_may_be_incomplete"] = True
+        if cd.get("requirements_text"):
+            detail["book_requirements_text"] = cd["requirements_text"]
+        if cd.get("proposed_intake") is not None:
+            detail["book_intake"] = cd["proposed_intake"]
+        if cd.get("page_number") is not None:
+            # §2.2 is where the details are — better provenance than the
+            # Uni-Code table's page for everything except the name/university
+            detail["book_details_page"] = cd["page_number"]
+        if not detail.get("name_en") and cd.get("name"):
+            detail["name_en"] = cd["name"]
+
+    return out
+
+
 @router.post("/ingestions/{run_id}/mapping/confirm", response_model=MappingConfirmResponse)
 async def confirm_mapping(
     run_id: uuid.UUID,
@@ -1059,7 +1277,17 @@ async def confirm_mapping(
     presence_raw = await load_artifact(db, str(run_id), "presence.json")
     present = set(json.loads(presence_raw)) if presence_raw is not None else None
     await db.execute(delete(HandbookChange).where(HandbookChange.run_id == run_id))
-    changes = await compute_handbook_diff(db, extracted, run.year, present_in_book=present)
+    # Phase 9.2: hand the diff what the book already said about each course, so a
+    # new course arrives at the review gate pre-filled instead of blank. The
+    # Section-2.2 artifact is written by the extraction job; an older run that
+    # predates it simply has no entries, and every reader treats a missing entry
+    # as "the book said nothing" rather than as a claim.
+    details_raw = await load_artifact(db, str(run_id), "course_details.json")
+    course_details = json.loads(details_raw) if details_raw else {}
+    book_details = await _book_prefill(db, artifact, by_code, course_details)
+    changes = await compute_handbook_diff(
+        db, extracted, run.year, present_in_book=present, book_details=book_details
+    )
     await record_changes(db, run_id, changes)
     change_counts: dict[str, int] = {}
     for ch in changes:
@@ -1142,6 +1370,26 @@ async def list_changes(
     )
 
 
+async def _validate_stream_codes(db: AsyncSession, codes: list[str]) -> list[str]:
+    """Normalise + validate stream codes against the streams table.
+
+    Mirrors admin_courses.replace_course_streams so the two write paths into
+    course_stream_eligibility can never disagree about what a valid code is.
+    """
+    known = {r.code for r in (await db.execute(text("SELECT code FROM streams"))).all()}
+    cleaned = sorted({c.strip().upper() for c in codes if c and c.strip()})
+    unknown = [c for c in cleaned if c not in known]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown stream code(s): {', '.join(unknown)}. "
+                f"Valid: {', '.join(sorted(known))}"
+            ),
+        )
+    return cleaned
+
+
 @router.patch("/ingestions/{run_id}/changes/{change_id}", response_model=HandbookChangeOut)
 async def update_change(
     run_id: uuid.UUID,
@@ -1151,27 +1399,49 @@ async def update_change(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ) -> HandbookChangeOut:
-    """Approve or reject one change. For a course_added the admin may supply the
-    university_id + name_en here (merged into after_value) so apply can create
-    the course stub."""
+    """Approve or reject one change. For a course_added the admin supplies the
+    university_id + name_en + stream_codes here (merged into after_value) so
+    apply can create a complete, visible course.
+
+    Phase 9 D1: approving a course_added requires all three. Approving without
+    streams used to produce a course no student could ever see, silently."""
     ch = await db.get(HandbookChange, change_id)
     if ch is None or ch.run_id != run_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Change not found for this run")
     if ch.status == "applied":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Change already applied")
 
-    before_status = ch.status
-    ch.status = payload.status
-    ch.resolved_by = f"admin:{admin.user_id}"
-    ch.resolved_at = datetime.now(timezone.utc)
-
-    if ch.change_type == "course_added" and (payload.university_id or payload.name_en):
+    if ch.change_type == "course_added":
         merged = dict(ch.after_value or {})
         if payload.university_id is not None:
             merged["university_id"] = payload.university_id
         if payload.name_en:
             merged["name_en"] = payload.name_en
+        if payload.stream_codes is not None:
+            merged["stream_codes"] = await _validate_stream_codes(db, payload.stream_codes)
         ch.after_value = merged
+
+        # D1 gate — only on approve; a reject needs no details at all.
+        if payload.status == "approved":
+            missing = [
+                field
+                for field in ("university_id", "name_en", "stream_codes")
+                if not merged.get(field)
+            ]
+            if missing:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        f"Cannot approve {ch.course_code}: missing {', '.join(missing)}. "
+                        "A new course needs a university, a name and at least one "
+                        "eligible stream — without a stream no student can ever see it."
+                    ),
+                )
+
+    before_status = ch.status
+    ch.status = payload.status
+    ch.resolved_by = f"admin:{admin.user_id}"
+    ch.resolved_at = datetime.now(timezone.utc)
 
     await log_admin_action(
         db, admin=admin, action_type="handbook_change.review",
@@ -1212,6 +1482,11 @@ async def apply_changes(
     applied_removed = applied_added = 0
     skipped: list[dict] = []
     now = datetime.now(timezone.utc)
+    # stream code -> id, resolved once for the course_added inserts below
+    stream_ids = {
+        r.code: r.stream_id
+        for r in (await db.execute(text("SELECT stream_id, code FROM streams"))).all()
+    }
 
     for ch in approved:
         if ch.change_type == "course_removed":
@@ -1238,8 +1513,22 @@ async def apply_changes(
         else:  # course_added
             av = ch.after_value or {}
             uni, name = av.get("university_id"), av.get("name_en")
-            if not uni or not name:
-                skipped.append({"course_code": ch.course_code, "reason": "needs university_id + name_en"})
+            streams = list(av.get("stream_codes") or [])
+            # Defensive (Phase 9 D1): the approve gate already enforces all
+            # three, but a change approved by an older build can still be
+            # streamless. Never create a course no student can see.
+            if not uni or not name or not streams:
+                skipped.append({
+                    "course_code": ch.course_code,
+                    "reason": "needs university_id + name_en + stream_codes",
+                })
+                continue
+            unknown_streams = [c for c in streams if c not in stream_ids]
+            if unknown_streams:
+                skipped.append({
+                    "course_code": ch.course_code,
+                    "reason": f"unknown stream code(s): {', '.join(unknown_streams)}",
+                })
                 continue
             if not (await db.execute(text("SELECT 1 FROM universities WHERE university_id = :u"), {"u": uni})).first():
                 skipped.append({"course_code": ch.course_code, "reason": f"unknown university_id {uni}"})
@@ -1249,18 +1538,32 @@ async def apply_changes(
                 skipped.append({"course_code": ch.course_code, "reason": "already exists; marked applied"})
                 continue
             course_number = ch.course_code[:3] if ch.course_code[:3].isdigit() else None
+            # Created ACTIVE (Phase 9 D1). Safe only because approve guarantees
+            # eligible streams, written in this same transaction below: the
+            # course becomes visible and complete together, or not at all.
             await db.execute(
                 text(
                     "INSERT INTO courses (course_code, course_number, university_id, name_en, is_active) "
-                    "VALUES (:code, :num, :uni, :name, false)"
+                    "VALUES (:code, :num, :uni, :name, true)"
                 ),
                 {"code": ch.course_code, "num": course_number, "uni": uni, "name": name},
             )
+            for sc in streams:
+                await db.execute(
+                    text(
+                        "INSERT INTO course_stream_eligibility (course_code, stream_id) "
+                        "VALUES (:cc, :sid)"
+                    ),
+                    {"cc": ch.course_code, "sid": stream_ids[sc]},
+                )
             ch.status, ch.resolved_by, ch.resolved_at = "applied", f"admin:{admin.user_id}", now
             await log_admin_action(
                 db, admin=admin, action_type="course.create", target_table="courses",
                 target_id=ch.course_code, before=None,
-                after={"course_code": ch.course_code, "university_id": uni, "name_en": name, "is_active": False},
+                after={
+                    "course_code": ch.course_code, "university_id": uni, "name_en": name,
+                    "is_active": True, "stream_codes": streams,
+                },
                 request=request, notes=f"handbook-sync addition (run {run_id})",
             )
             applied_added += 1

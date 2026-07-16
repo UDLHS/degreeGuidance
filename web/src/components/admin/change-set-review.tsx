@@ -32,6 +32,12 @@ type Change = {
 
 type ChangesResponse = { total: number; counts: Record<string, number>; items: Change[] };
 type University = { university_id: number; university_code: string | null };
+type Stream = { code: string; name_en: string };
+type AddForm = { university_id: string; name_en: string; stream_codes: string[] };
+
+// ICT is a subject, not an A/L stream — the student side never offers it as
+// one, so it isn't offered here either. Same list the student picker uses.
+const NOT_A_STREAM = "ICT";
 
 const STATUS_STYLES: Record<ChangeStatus, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -63,7 +69,8 @@ export function ChangeSetReview({ runId }: { runId: string }) {
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [universities, setUniversities] = useState<University[]>([]);
-  const [forms, setForms] = useState<Record<number, { university_id: string; name_en: string }>>({});
+  const [streams, setStreams] = useState<Stream[]>([]);
+  const [forms, setForms] = useState<Record<number, AddForm>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [applying, setApplying] = useState(false);
   const [open, setOpen] = useState<Record<number, boolean>>({});
@@ -74,14 +81,20 @@ export function ChangeSetReview({ runId }: { runId: string }) {
     if (res.ok) {
       const d: ChangesResponse = await res.json();
       setData(d);
-      // seed the inline add-course forms from any details already on the change
+      // Seed the inline add-course forms from what the book already told us
+      // (Phase 9.2): name/university come from the book's own Uni-Codes
+      // section, streams from its cutoff-column tag — a suggestion only, so
+      // the admin still confirms. Anything already saved on the change wins.
       setForms((prev) => {
         const next = { ...prev };
         for (const c of d.items) {
           if (c.change_type === "course_added" && !next[c.change_id]) {
+            const saved = c.after_value?.stream_codes as string[] | undefined;
+            const suggested = c.after_value?.suggested_stream_codes as string[] | undefined;
             next[c.change_id] = {
               university_id: String((c.after_value?.university_id as number) ?? ""),
               name_en: String((c.after_value?.name_en as string) ?? ""),
+              stream_codes: (saved ?? suggested ?? []).filter((s) => s !== NOT_A_STREAM),
             };
           }
         }
@@ -114,6 +127,36 @@ export function ChangeSetReview({ runId }: { runId: string }) {
     })();
   }, []);
 
+  // Stream catalog for the eligibility ticks — public reference data, the same
+  // source the Courses page uses. ICT is dropped: see NOT_A_STREAM.
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/public/reference", { cache: "no-store" });
+      if (!res.ok) return;
+      const d = await res.json();
+      setStreams(
+        (d.streams ?? [])
+          .map((s: { code: string; name_en: string }) => ({ code: s.code, name_en: s.name_en }))
+          .filter((s: Stream) => s.code !== NOT_A_STREAM),
+      );
+    })();
+  }, []);
+
+  function toggleStream(changeId: number, code: string) {
+    setForms((p) => {
+      const f = p[changeId] ?? { university_id: "", name_en: "", stream_codes: [] };
+      return {
+        ...p,
+        [changeId]: {
+          ...f,
+          stream_codes: f.stream_codes.includes(code)
+            ? f.stream_codes.filter((s) => s !== code)
+            : [...f.stream_codes, code],
+        },
+      };
+    });
+  }
+
   async function review(change: Change, status: "approved" | "rejected") {
     setBusyId(change.change_id);
     setMsg(null);
@@ -122,6 +165,7 @@ export function ChangeSetReview({ runId }: { runId: string }) {
       const f = forms[change.change_id];
       body.university_id = f?.university_id ? Number(f.university_id) : null;
       body.name_en = f?.name_en?.trim() || null;
+      body.stream_codes = f?.stream_codes ?? [];
     }
     const res = await fetch(`/api/bff/admin/ingestions/${runId}/changes/${change.change_id}`, {
       method: "PATCH",
@@ -131,14 +175,25 @@ export function ChangeSetReview({ runId }: { runId: string }) {
     setBusyId(null);
     if (!res.ok) {
       const e = await res.json().catch(() => null);
-      setMsg({ ok: false, text: e?.detail ?? `Update failed (${res.status}).` });
+      // detail is a string for our own gates, but FastAPI's validation errors
+      // are a list — never hand a non-string to the renderer.
+      setMsg({
+        ok: false,
+        text: typeof e?.detail === "string" ? e.detail : `Update failed (${res.status}).`,
+      });
       return;
     }
     await load();
   }
 
   async function apply() {
-    if (!confirm("Apply all approved changes? Removed courses will be hidden from students and new course stubs created.")) return;
+    if (
+      !confirm(
+        "Apply all approved changes? Removed courses will be hidden from students. " +
+          "New courses will be created and visible to students, with the streams you ticked.",
+      )
+    )
+      return;
     setApplying(true);
     setMsg(null);
     const res = await fetch(`/api/bff/admin/ingestions/${runId}/changes/apply`, { method: "POST" });
@@ -211,8 +266,19 @@ export function ChangeSetReview({ runId }: { runId: string }) {
                   const isAdded = c.change_type === "course_added";
                   const isCutoff = c.change_type === "cutoff_changed";
                   const actionable = c.status === "pending" || c.status === "approved" || c.status === "rejected";
-                  const form = forms[c.change_id] ?? { university_id: "", name_en: "" };
-                  const addReady = !isAdded || (form.university_id && form.name_en.trim());
+                  const form = forms[c.change_id] ?? { university_id: "", name_en: "", stream_codes: [] };
+                  // Phase 9 D1: streams are required to approve — a course with
+                  // none is invisible to every student, silently.
+                  const addReady =
+                    !isAdded ||
+                    Boolean(form.university_id && form.name_en.trim() && form.stream_codes.length > 0);
+                  const bookPage = c.after_value?.book_page as number | undefined;
+                  const bookUni = c.after_value?.book_university as string | undefined;
+                  // Phase 9.2b — what Section 2.2 of the book says about it
+                  const bookReq = c.after_value?.book_requirements_text as string | undefined;
+                  const bookIntake = c.after_value?.book_intake as number | undefined;
+                  const detailsPage = c.after_value?.book_details_page as number | undefined;
+                  const mayBeIncomplete = c.after_value?.streams_may_be_incomplete === true;
                   const details = (c.after_value?.details as CutoffDelta[] | undefined) ?? [];
                   return (
                     <div key={c.change_id} className="rounded-lg border p-3">
@@ -251,32 +317,106 @@ export function ChangeSetReview({ runId }: { runId: string }) {
                           )}
 
                           {isAdded && c.status !== "applied" && (
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <Select
-                                value={form.university_id}
-                                onValueChange={(v) =>
-                                  setForms((p) => ({ ...p, [c.change_id]: { ...form, university_id: v } }))
-                                }
+                            <div className="mt-2 space-y-2">
+                              {(bookPage || bookUni) && (
+                                <p className="text-xs text-muted-foreground">
+                                  Pre-filled from the book
+                                  {bookPage ? ` (p.${bookPage})` : ""}
+                                  {bookUni && !form.university_id
+                                    ? ` — the book says “${bookUni}”; pick the matching university`
+                                    : ""}
+                                  . Check it, change anything that&apos;s wrong, then approve.
+                                </p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Select
+                                  value={form.university_id}
+                                  onValueChange={(v) =>
+                                    setForms((p) => ({ ...p, [c.change_id]: { ...form, university_id: v } }))
+                                  }
+                                >
+                                  <SelectTrigger className="h-8 w-[150px] text-xs">
+                                    <SelectValue placeholder="University…" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {universities.map((u) => (
+                                      <SelectItem key={u.university_id} value={String(u.university_id)}>
+                                        {u.university_code ?? `#${u.university_id}`}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Input
+                                  value={form.name_en}
+                                  onChange={(e) =>
+                                    setForms((p) => ({ ...p, [c.change_id]: { ...form, name_en: e.target.value } }))
+                                  }
+                                  placeholder="Course name"
+                                  className="h-8 w-[240px] text-xs"
+                                />
+                              </div>
+
+                              <div
+                                className={cn(
+                                  "space-y-1.5 rounded-md border p-3",
+                                  form.stream_codes.length === 0 && "border-amber-300 bg-amber-50",
+                                )}
                               >
-                                <SelectTrigger className="h-8 w-[150px] text-xs">
-                                  <SelectValue placeholder="University…" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {universities.map((u) => (
-                                    <SelectItem key={u.university_id} value={String(u.university_id)}>
-                                      {u.university_code ?? `#${u.university_id}`}
-                                    </SelectItem>
+                                <div className="text-xs font-medium">
+                                  Eligible streams (required)
+                                  {detailsPage ? (
+                                    <span className="ml-1 font-normal text-muted-foreground">
+                                      — read from the book, p.{detailsPage}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  Students only see this course from a ticked stream. No ticks = invisible
+                                  to everyone, so it can&apos;t be approved without one.
+                                </p>
+                                {mayBeIncomplete && (
+                                  <p className="rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+                                    ⚠ <strong>These may not be all of them.</strong> The book also lets
+                                    students in through a subject list without naming a stream, so what
+                                    we could read is a <em>minimum</em>. Read the book&apos;s wording
+                                    below and add any stream that qualifies — a missing tick means those
+                                    students never see this course.
+                                  </p>
+                                )}
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-1 sm:grid-cols-3">
+                                  {streams.map((s) => (
+                                    <label key={s.code} className="flex items-center gap-2 text-xs">
+                                      <input
+                                        type="checkbox"
+                                        checked={form.stream_codes.includes(s.code)}
+                                        onChange={() => toggleStream(c.change_id, s.code)}
+                                      />
+                                      {s.name_en}
+                                    </label>
                                   ))}
-                                </SelectContent>
-                              </Select>
-                              <Input
-                                value={form.name_en}
-                                onChange={(e) =>
-                                  setForms((p) => ({ ...p, [c.change_id]: { ...form, name_en: e.target.value } }))
-                                }
-                                placeholder="Course name"
-                                className="h-8 w-[240px] text-xs"
-                              />
+                                </div>
+                              </div>
+
+                              {bookReq && (
+                                <details className="rounded-md border p-3" open={mayBeIncomplete}>
+                                  <summary className="cursor-pointer text-xs font-medium">
+                                    What the book says about this course
+                                    {detailsPage ? ` (p.${detailsPage})` : ""}
+                                    {bookIntake ? ` · proposed intake ${bookIntake}` : ""}
+                                  </summary>
+                                  {/* the book's own words, verbatim — the admin
+                                      confirms against this, and it is also the
+                                      subject rule they must still author (D6) */}
+                                  <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                                    {bookReq}
+                                  </p>
+                                  <p className="mt-2 text-xs text-muted-foreground">
+                                    Subject rules aren&apos;t set from here yet — after applying, add
+                                    them on <span className="font-medium">Subject Rules</span> so the
+                                    engine filters on this, not just the stream.
+                                  </p>
+                                </details>
+                              )}
                             </div>
                           )}
                         </div>
@@ -289,7 +429,11 @@ export function ChangeSetReview({ runId }: { runId: string }) {
                                 variant="outline"
                                 disabled={busyId === c.change_id || !addReady}
                                 onClick={() => review(c, "approved")}
-                                title={isAdded && !addReady ? "Pick a university and enter a name first" : undefined}
+                                title={
+                                  isAdded && !addReady
+                                    ? "Pick a university, enter a name, and tick at least one eligible stream first"
+                                    : undefined
+                                }
                               >
                                 <Check className="mr-1 h-3.5 w-3.5" aria-hidden /> Approve
                               </Button>
@@ -320,7 +464,8 @@ export function ChangeSetReview({ runId }: { runId: string }) {
             {applying ? "Applying…" : `Apply ${approvedApplyable} approved change${approvedApplyable === 1 ? "" : "s"}`}
           </Button>
           <span className="text-xs text-muted-foreground">
-            Removed → hidden from students (kept for the AI). Added → created as inactive, complete later on Courses.
+            Removed → hidden from students (kept for the AI). Added → created live and visible to
+            students with the streams you ticked. Promote is blocked until every new course is done.
           </span>
         </div>
         {msg && <p className={cn("text-sm", msg.ok ? "text-green-700" : "text-destructive")}>{msg.text}</p>}

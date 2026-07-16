@@ -32,6 +32,7 @@ import asyncio
 import json
 import logging
 import uuid
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,7 @@ from core.config import settings
 from core.db import AsyncSessionLocal
 from core.ingestion.artifact_store import artifact_path, put_artifact
 from core.ingestion.book_search import build_book_text, present_courses
+from core.ingestion.course_details import parse_course_details
 from core.ingestion.column_mapper import suggest_mappings
 from core.ingestion.grid_extractor import (
     consolidate,
@@ -71,18 +73,23 @@ def _pages_to_spec(pages: list[int]) -> str:
 
 def _extract_and_index(pdf_path: str, pages: list[int] | None):
     """Synchronous CPU-bound stage: grid + consolidation + whole-book text +
-    the book's own Uni-Code section (the authoritative name -> code table).
+    the book's own Uni-Code section (the authoritative name -> code table) +
+    Section 2.2 (what the book says about each course — Phase 9.1).
 
     Each whole-book PDF sweep here (grid page-detect, book text, Uni-Code
-    detect) iterates in chunks that close and reopen the handle, so
-    pdfminer's per-page memory accumulation is released instead of stacking
+    detect, Section 2.2) iterates in chunks that close and reopen the handle,
+    so pdfminer's per-page memory accumulation is released instead of stacking
     into an OOM on a memory-constrained worker. See core/ingestion/pdf_pages.
     """
     extraction = extract_grid(pdf_path, pages)
     logical, conflict_warnings = consolidate(extraction)
     book_text = build_book_text(pdf_path) if logical else ""
     book_rows, book_warnings = parse_unicode_section(pdf_path) if logical else ([], [])
-    return extraction, logical, conflict_warnings, book_text, book_rows, book_warnings
+    course_details = parse_course_details(pdf_path) if logical else {}
+    return (
+        extraction, logical, conflict_warnings,
+        book_text, book_rows, book_warnings, course_details,
+    )
 
 
 async def _mark_run_failed(run_id: str, message: str) -> None:
@@ -140,7 +147,7 @@ async def extract_pdf_job(
             pages = parse_pages_spec(cutoff_pages) if cutoff_pages else None
             (
                 extraction, logical, conflict_warnings,
-                book_text, book_rows, book_warnings,
+                book_text, book_rows, book_warnings, course_details,
             ) = await asyncio.to_thread(_extract_and_index, str(pdf_file), pages)
 
             if not logical:
@@ -165,6 +172,20 @@ async def extract_pdf_job(
                 await put_artifact(
                     db, run_id, "presence.json",
                     json.dumps(sorted(present)).encode("utf-8"),
+                )
+
+                # What the book says about each course (Phase 9.1): the review
+                # gate pre-fills a new course from this instead of making the
+                # admin retype it, and the catalog audit compares what we serve
+                # students against what the book actually grants. Facts only —
+                # read from the book, never inferred (see the plan's
+                # "THE CORRECTION"). Empty dict is fine: every reader treats a
+                # missing entry as "the book said nothing", not as a claim.
+                await put_artifact(
+                    db, run_id, "course_details.json",
+                    json.dumps(
+                        {k: asdict(v) for k, v in course_details.items()}
+                    ).encode("utf-8"),
                 )
 
                 # deterministic mapping suggestions -> extraction_columns rows

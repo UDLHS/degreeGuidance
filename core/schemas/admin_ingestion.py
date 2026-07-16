@@ -107,20 +107,61 @@ class HandbookChangeListResponse(BaseModel):
 
 
 class HandbookChangeUpdate(BaseModel):
-    """Approve/reject one change. For a course_added the admin also supplies the
-    university_id + name_en the cutoff table can't give us, so apply can create
-    a valid (inactive) course stub."""
+    """Approve/reject one change. For a course_added the admin supplies the
+    university_id + name_en (pre-filled from the book's Uni-Codes section) and
+    the stream_codes that decide whether any student can ever see the course.
+
+    Phase 9 D1: approving a course_added REQUIRES stream_codes. The engine only
+    serves a course that has a course_stream_eligibility row, so approving
+    without one produced a course that was invisible to every student, silently.
+    Approved must mean visible."""
 
     status: Literal["approved", "rejected"]
     notes: str | None = None
     university_id: int | None = Field(default=None, description="required to apply a course_added")
     name_en: str | None = Field(default=None, description="required to apply a course_added")
+    stream_codes: list[str] | None = Field(
+        default=None,
+        description="required to APPROVE a course_added — a course with no stream is invisible to every student",
+    )
 
 
 class ChangeApplyResponse(BaseModel):
     applied_removed: int
     applied_added: int
     skipped: list[dict[str, Any]]
+
+
+class CatalogAuditItem(BaseModel):
+    """One EXISTING course whose streams differ from what this book says."""
+
+    course_number: str
+    name: str | None = None
+    book_streams: list[str]
+    db_streams: list[str]
+    #: the book grants it, we don't -> invisible to students who could apply
+    only_in_book: list[str]
+    #: we grant it, the book doesn't -> shown to students who cannot apply
+    only_in_db: list[str]
+    page_number: int | None = None
+    #: the book also grants entry by subject list, so its stream list is a
+    #: FLOOR — do not "correct" the catalog down to match it here
+    book_may_be_incomplete: bool = False
+    #: "invisible" (costs a student a degree) or "over_granted"
+    severity: str
+
+
+class CatalogAuditResponse(BaseModel):
+    """Phase 9.3b — the live catalog measured against this handbook.
+
+    Report-only: an admin decides which side is right. Financial Economics/131
+    sat wrong for a year because nothing ever ran this comparison."""
+
+    exam_year: int | None = None
+    #: how many courses the book documented well enough to compare
+    courses_in_book: int
+    #: disagreements, worst first (invisible before over_granted)
+    items: list[CatalogAuditItem]
 
 
 # ── Staged extraction lifecycle (Phase 1 pipeline) ──────────────────────────

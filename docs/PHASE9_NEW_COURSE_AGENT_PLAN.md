@@ -1,0 +1,154 @@
+# Phase 9 — New-course agent: book-derived onboarding at the gate
+
+Added 2026-07-15. **Revised 2026-07-16 after reading the actual handbook** —
+the original design was wrong on its central point and is corrected below.
+
+Supersedes Phase 8's *passive* onboarding panel with an *enforcing* gate fed by
+the book itself.
+
+---
+
+## THE CORRECTION (read this before anything else)
+
+The first draft of this plan said: *"Gemini reads the course's section and
+returns structured fields, including streams."* **That is wrong and it is
+dangerous. Do not build it.**
+
+What reading the real book (2023/2024/2025) proved:
+
+1. **The book states the facts. Read them; never infer them.** A course printed
+   under `2.2.4 PHYSICAL SCIENCE STREAM` *is* a Physical Science course. That
+   is a statement, not a guess. Deterministic parsing scored **99–100%**
+   against the hand-seeded catalog — and found errors *in the catalog*.
+
+2. **For cross-stream courses the book names no streams at all.** §2.2.8
+   courses (Architecture, Quantity Surveying, IT) are defined purely by
+   SUBJECT requirements — *"at least a 'C' in one of: Higher Maths, Combined
+   Maths, Maths, Physics"*. So an LLM asked "which streams?" could only
+   **guess from subject lists**, on the one field that decides whether a
+   student ever sees the course. It would be fluent, confident, and wrong.
+
+3. **The right rule was already in the codebase.** §2.1(8)/§2.2.8's own heading
+   — *"COURSES OF STUDY FOR WHICH STUDENTS FROM DIFFERENT SUBJECT STREAMS ARE
+   ELIGIBLE"* — means **all six streams**, with the SUBJECT rules filtering
+   downstream. `core/ingestion/stream_tags.py` documented this convention
+   already (migration 16), and it matches how the catalog seeded Architecture,
+   Quantity Surveying and IT.
+
+**So: a big careful reader, plus a small writer.** Deterministic parsing for
+every FACT (streams, codes, names, intake, medium, duration). The LLM is only
+for WRITING prose (factsheet/knowledge text) from facts already read — where
+fluency helps, mistakes are cheap, and the draft gate (D4) catches them.
+
+**And where the book cannot be read, say so — never guess and never stay
+quiet.** An under-reported stream list is not "conservative": it makes a course
+invisible to students who could have applied, which is the exact bug this phase
+exists to kill.
+
+---
+
+## Locked decisions (user)
+
+| # | Decision |
+|---|---|
+| **D1** | **Approve is blocked until streams exist** ⇒ approved == visible. Enforced server-side (422), never a silent skip. |
+| **D2** | **Agent proposes, admin edits, admin approves.** Every field pre-filled but editable, with its source page shown. |
+| **D3** | **Factsheet = book first, then web enrichment** (book: streams/requirements/medium; web: careers/industry). |
+| **D4** | **Course goes live on approve; the factsheet lands as a draft** and is indexed into the advisor only after separate approval. |
+| **D5** | *(2026-07-16)* **ICT is a subject, not a stream.** The book names **six** streams (2024 p.28). The `streams` table's 7th row (ICT) is a modelling artifact. Never emit it as a stream; never build rules around it. |
+| **D6** | *(2026-07-16)* **A new course needs subject rules too, not just streams.** Streams decide who *sees* it; subject rules decide who *qualifies*. Both belong at the gate. |
+
+---
+
+## Status
+
+### Done + verified (uncommitted as of 2026-07-16)
+
+- **9.2 — the gate.** Approve refuses without university + name + streams (422,
+  server-enforced). Apply creates the course **live** and writes
+  `course_stream_eligibility` in the same transaction. Pre-fills name/university
+  /page from the book's Uni-Codes section (`_book_prefill`), university by exact
+  normalised match only — never a fuzzy guess.
+- **9.3 — the promote gate.** `promote` returns 409 listing any new course in
+  the run that is unfinished (pending, approved-but-not-applied, or applied
+  without streams). Closes both silent-loss doors: the checklist used to only
+  *count* them.
+- **`core/ingestion/course_details.py`** — reads §2.2 per course: name,
+  streams, proposed intake, prerequisite prose verbatim, page number. Works on
+  2023/2024/2025 with no per-year changes. **99–100% vs the catalog.**
+- **`core/ingestion/catalog_audit.py`** — read-only compare of catalog vs book.
+  Distinguishes `invisible` (we're missing a stream the book grants — the
+  costly direction) from `over_granted` (we grant one it doesn't).
+- **Tests**: 376 passing (14 new unit tests quoting real book strings, 9
+  integration tests pinning the gate).
+
+### Known problems (open)
+
+| # | Problem |
+|---|---|
+| **P1** | **131 Financial Economics is still wrong in PRODUCTION.** Book p.117 grants Arts + Commerce; prod grants all six. Fixed in the dev DB only (2026-07-16). Real students are currently shown a degree they cannot enter. Needs a standalone Supabase script + explicit go-ahead. |
+| **P2** | **124's class cannot be read.** The book grants entry *"or [with] any three of: Chemistry, Physics, Biology, Agricultural Science"* — subjects, no stream. The parser reports a **floor** and sets `streams_may_be_incomplete`; a human must widen it. Never auto-"correct" the catalog down to match the book here. |
+| **P3** | **`course_mediums` is EMPTY for the whole catalog** — yet students see medium tags and the book prints `Medium : English` for every course. |
+| **P4** | **Nothing calls the parser or the audit.** Both are working modules with no caller; the admin sees neither. |
+| **P5** | **A stream restriction survived only as a free-text note.** 131's rule carried `notes: "Other 2 subjects from Arts or Commerce stream."` — correct, human-written, and read by no code. Notes are not enforcement. |
+
+---
+
+## Remaining work
+
+### 9.1b — wire the reader in
+Call `parse_course_details` inside `apps/worker/jobs/extract_pdf.py`, where the
+PDF is already open and already swept (grid, book text, Uni-Code section) —
+memory stays bounded via `iter_pages_chunked`. Persist as artifact
+`course_details.json`. Everything below reads that artifact instead of
+re-opening the book.
+
+### 9.2b — the gate, completed
+Pre-fill the New-courses card from `course_details.json`: streams (ticked),
+intake, the book's requirement prose, page number. Show the
+`streams_may_be_incomplete` warning inline. **Add the subject-rules slot (D6)**,
+pre-filled with the book's requirement text for the admin to confirm.
+
+### 9.3b — surface the audit
+Run the audit at confirm/promote and show disagreements on the run page:
+"N existing courses disagree with this book" + the two severities. This is what
+finds the next 131 instead of luck. Report-only; an admin decides.
+
+### 9.4 — factsheet / knowledge draft
+Wrap `scripts/generate_factsheets.py` as an arq worker job. Input: book details
+(authoritative) + web enrichment (D3). Output: **draft** → factsheet editor →
+admin approves → `index_factsheets` embeds it. Never indexed while draft (D4).
+
+### 9.5 — make the work visible
+"New courses" filter + badge on Courses; banners on Factsheets / Knowledge /
+Requirements / run page. Each note must say **what is missing and where the
+book says it** ("no subject rule; book p.117 says 'B in Economics'") — a note
+that isn't actionable is just a red dot.
+
+### 9.6 — the rest of the book (user's list, 2026-07-16)
+- **Mediums** (P3) — the book prints it; nothing reads it.
+- **Duration, aptitude test, proposed intake** — all printed; students already
+  see aptitude badges.
+- **One course = many universities** — `Available University: X, Y, Z`, each its
+  own Uni-Code. One "new course" (142) can mean several rows (142A/142B).
+- **Renames** — a renamed course reads as *removed + added*, so we would
+  deactivate a live course and create a duplicate beside it.
+- **Removed courses** — already handled by the diff's whole-book safeguard;
+  keep it in the agent's story.
+
+---
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| Guessing a stream we cannot read | `streams_may_be_incomplete` + D2 (editable) + page shown; approve blocked until a human ticks |
+| A future book changes format | Sections resolve by their printed **words** and structural **depth**, never by number (a `2.2.9 COMMERCE STREAM` still reads as Commerce). If the format truly changes it finds *nothing* and the admin fills in manually — it does not invent answers. |
+| Extraction memory blow-up | `iter_pages_chunked` only; re-measure per book (`pdf-extraction-memory-limit`) |
+| LLM writing prose the advisor states as fact | D4: draft before indexing |
+
+## Explicitly out of scope
+
+- A deterministic §2.2 grammar parser for subject *rules* (MASTERPLAN_v4 §66:
+  five shapes, multi-week). Prose is carried verbatim for a human + summariser.
+- **Using an LLM for any FACT the book states.** See THE CORRECTION.

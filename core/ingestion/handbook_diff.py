@@ -57,6 +57,7 @@ async def compute_handbook_diff(
     extracted: dict[str, dict[str, str]],
     exam_year: int,
     present_in_book: set[str] | None = None,
+    book_details: dict[str, dict[str, Any]] | None = None,
 ) -> list[ChangeRecord]:
     """Diff the extracted handbook against the DB. Pure read; returns records.
 
@@ -65,6 +66,13 @@ async def compute_handbook_diff(
     course absent from the extracted grids but still present in the book is
     NOT flagged removed (it lives outside the cutoff tables — the
     007K/103D/104H/105L/140P false-positive class).
+
+    book_details (Phase 9.2) — code -> what the BOOK already told us about a new
+    course (name_en/university_id/book_university/book_page from its own
+    Uni-Codes section, plus suggested_stream_codes from the cutoff column's
+    bracket tag). Merged into a course_added's after_value so the admin
+    confirms facts instead of retyping them. Suggestions only: the admin still
+    approves, and streams are never auto-applied (see stream_tags).
     """
     extracted_codes = {str(c).strip().upper() for c in extracted}
     # normalise the keys we look up cutoffs by, too
@@ -106,6 +114,9 @@ async def compute_handbook_diff(
     # --- Added: extracted code with no course row at all ---
     for code in sorted(extracted_codes - db_codes):
         cutoff_count = sum(1 for v in extracted_norm[code].values() if _parse_z(v) is not None)
+        after: dict[str, Any] = {"course_code": code, "district_cutoff_count": cutoff_count}
+        # Pre-fill from the book itself, when we have it (Phase 9.2).
+        after.update({k: v for k, v in (book_details or {}).get(code, {}).items() if v})
         changes.append(
             ChangeRecord(
                 change_type="course_added",
@@ -115,7 +126,7 @@ async def compute_handbook_diff(
                     f"({cutoff_count} district cutoffs); no matching course in the DB."
                 ),
                 before_value=None,
-                after_value={"course_code": code, "district_cutoff_count": cutoff_count},
+                after_value=after,
             )
         )
 
