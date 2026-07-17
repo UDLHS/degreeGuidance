@@ -124,6 +124,8 @@ class OnboardingItem(BaseModel):
     has_latest_cutoff: bool
     has_factsheet: bool
     has_subject_rule: bool  # informational — no rule = ungated by design
+    #: queued | ready | failed | rejected | None — machine factsheet draft (9.4)
+    draft_status: str | None = None
     blockers: list[str]
 
 

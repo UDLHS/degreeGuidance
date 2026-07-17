@@ -225,7 +225,9 @@ _ONBOARDING_QUERY = text(
                WHERE f.course_number = c.course_number)           AS has_factsheet,
       EXISTS (SELECT 1 FROM course_requirements r
                WHERE r.course_number = c.course_number
-                 AND r.exam_year IS NULL)                         AS has_subject_rule
+                 AND r.exam_year IS NULL)                         AS has_subject_rule,
+      (SELECT d.status FROM factsheet_drafts d
+        WHERE d.course_number = c.course_number)                  AS draft_status
     FROM courses c
     LEFT JOIN universities u ON u.university_id = c.university_id
     ORDER BY c.course_code
@@ -240,7 +242,17 @@ def _blockers(row) -> list[str]:
     if row.stream_count == 0:
         out.append("no eligible streams — invisible to every student")
     if not row.has_factsheet:
-        out.append("no factsheet — the AI advisor knows nothing about it")
+        # Phase 9.5: say what the actual next step is. A gate-created course
+        # arrives with a machine draft already queued (9.4) — "no factsheet"
+        # alone would send the admin off to write one that already exists.
+        if row.draft_status == "ready":
+            out.append("factsheet draft awaiting review — approve or edit it in the editor")
+        elif row.draft_status == "queued":
+            out.append("factsheet draft generating — check the editor shortly")
+        elif row.draft_status == "failed":
+            out.append("factsheet draft generation FAILED — retry from the editor")
+        else:
+            out.append("no factsheet — the AI advisor knows nothing about it")
     return out
 
 
@@ -262,6 +274,7 @@ async def onboarding_status(db: AsyncSession = Depends(get_db)) -> OnboardingRes
             has_latest_cutoff=bool(r.has_latest_cutoff),
             has_factsheet=bool(r.has_factsheet),
             has_subject_rule=bool(r.has_subject_rule),
+            draft_status=r.draft_status,
             blockers=_blockers(r),
         )
         for r in rows

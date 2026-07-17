@@ -141,11 +141,27 @@ Still open from this item: KNOWLEDGE-article drafts (same mechanism, articles
 table) — decide whether a new course warrants an article at all, or whether
 factsheets cover it; revisit alongside 9.5.
 
-### 9.5 — make the work visible
-"New courses" filter + badge on Courses; banners on Factsheets / Knowledge /
-Requirements / run page. Each note must say **what is missing and where the
-book says it** ("no subject rule; book p.117 says 'B in Economics'") — a note
-that isn't actionable is just a red dot.
+### 9.5 — make the work visible — **CORE DONE (2026-07-17)**
+Every note says what is missing AND where the book says it:
+
+- **Subject Rules page**: a banner lists every active course number with no
+  baseline rule, each carrying the newest ingested book's requirement prose
+  VERBATIM + page (`GET /api/admin/requirements/gaps`; Arts/019 excluded —
+  its 4-basket checker is by design). NOTE: as of 2026-07-17 the dev catalog
+  has ZERO gaps — all ~129 active numbers except 019 are curated (the old
+  "137 uncurated" figure wrongly counted per-code instead of per-number).
+- **Courses page onboarding panel**: a missing factsheet now names the actual
+  next step — "draft awaiting review / generating / FAILED" (from
+  factsheet_drafts, 9.4) instead of a generic "no factsheet"; item carries
+  `draft_status`.
+- **Factsheets page**: covered by 9.4 (per-row draft badges + "drafts to
+  review" filter chip + existing missing/stale chips).
+- **Run page**: covered by 9.3b (catalog-audit card) + the gate card itself.
+
+Still open from this item: whether the KNOWLEDGE page needs a per-new-course
+banner at all — articles are general-purpose, not per-course; decide with the
+user whether a new course warrants an auto-drafted article (9.4's open half)
+or whether factsheets cover it.
 
 ### 9.6 — the rest of the book (user's list, 2026-07-16)
 - **Mediums** (P3) — the book prints it; nothing reads it.

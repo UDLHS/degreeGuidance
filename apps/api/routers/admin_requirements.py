@@ -1,17 +1,24 @@
 """Admin endpoint for reviewing curated course_requirements rules.
 
-GET /api/admin/requirements  -- read-only list of all baseline subject rules
-                               joined with course names and eligible stream codes.
-                               Used by the admin requirements review page.
+GET /api/admin/requirements       -- read-only list of all baseline subject
+                                     rules joined with course names and
+                                     eligible stream codes.
+GET /api/admin/requirements/gaps  -- Phase 9.5: active course numbers with NO
+                                     baseline rule, each carrying what the
+                                     book says (verbatim prose + page) so the
+                                     note is actionable, not just a red dot.
 
-This endpoint is intentionally read-only: the source of truth is
-data/seeds/course_requirements_data.py (migrated via alembic). Edits go
-through that file + a new migration, not through an API.
+Listing is read-only: legacy rules come from
+data/seeds/course_requirements_data.py (migrated via alembic), and new
+courses get their rule at the ingestion gate (Phase 9 D6) — there is still
+deliberately no free-form rule editor here.
 
 Gated by require_admin.
 """
 
 from __future__ import annotations
+
+import json
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -19,6 +26,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.dependencies import get_current_admin, get_db
+from core.ingestion.artifact_store import load_artifact
+from core.ingestion.course_details import details_from_artifact
 
 router = APIRouter(
     prefix="/api/admin",
@@ -87,6 +96,91 @@ _QUERY_FILTERED = text(
     ORDER BY cr.course_number
     """
 )
+
+
+class RequirementGapItem(BaseModel):
+    course_number: str
+    course_name: str | None
+    course_count: int
+    #: what the handbook itself says, verbatim — so the admin writes the rule
+    #: from the book's words, never from memory
+    book_requirements_text: str | None = None
+    book_page: int | None = None
+
+
+class RequirementGapsResponse(BaseModel):
+    total: int
+    #: the exam year of the book the prose was read from (None = no ingested
+    #: book has a course-details artifact yet)
+    book_year: int | None
+    items: list[RequirementGapItem]
+
+
+#: Arts (019) is deliberately NOT in course_requirements — its 4-basket
+#: selection system has its own dedicated checker (core/eligibility/
+#: arts_basket.py), so listing it as a "gap" would be a permanent false flag.
+_GAPS_QUERY = text(
+    """
+    SELECT c.course_number,
+           MIN(c.name_en) AS course_name,
+           COUNT(*)       AS course_count
+    FROM courses c
+    WHERE c.is_active
+      AND c.course_number IS NOT NULL
+      AND c.course_number <> '019'
+      AND NOT EXISTS (
+          SELECT 1 FROM course_requirements r
+          WHERE r.course_number = c.course_number AND r.exam_year IS NULL
+      )
+    GROUP BY c.course_number
+    ORDER BY c.course_number
+    """
+)
+
+
+@router.get("/requirements/gaps", response_model=RequirementGapsResponse)
+async def requirement_gaps(db: AsyncSession = Depends(get_db)) -> RequirementGapsResponse:
+    """Active course numbers the engine serves UNGATED (stream check only).
+
+    Legacy-by-design (migration 24's incremental curation), not an error —
+    but each one is exactly the state that let 131's restriction rot in a
+    notes field. The book's own wording rides along so closing a gap is one
+    read of the prose, not an archaeology dig. Computed live, year-agnostic.
+    """
+    rows = (await db.execute(_GAPS_QUERY)).all()
+
+    # the newest ingested book that has a course-details artifact
+    details = {}
+    book_year: int | None = None
+    run = (
+        await db.execute(
+            text(
+                "SELECT ir.run_id, ir.year FROM ingestion_runs ir "
+                "JOIN ingestion_artifacts ia ON ia.run_id = ir.run_id "
+                "WHERE ia.kind = 'course_details.json' "
+                "ORDER BY ir.started_at DESC LIMIT 1"
+            )
+        )
+    ).first()
+    if run is not None:
+        raw = await load_artifact(db, str(run.run_id), "course_details.json")
+        if raw is not None:
+            details = details_from_artifact(json.loads(raw))
+            book_year = run.year
+
+    items = []
+    for r in rows:
+        d = details.get(r.course_number)
+        items.append(
+            RequirementGapItem(
+                course_number=r.course_number,
+                course_name=r.course_name,
+                course_count=int(r.course_count),
+                book_requirements_text=(d.requirements_text or None) if d else None,
+                book_page=d.page_number if d else None,
+            )
+        )
+    return RequirementGapsResponse(total=len(items), book_year=book_year, items=items)
 
 
 @router.get("/requirements", response_model=list[RequirementOut])

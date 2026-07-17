@@ -16,6 +16,17 @@ type Requirement = {
   eligible_stream_codes: string[];
 };
 
+// Phase 9.5 — active course numbers with NO baseline rule, each carrying the
+// book's own wording so closing the gap is one read, not an archaeology dig.
+type Gap = {
+  course_number: string;
+  course_name: string | null;
+  course_count: number;
+  book_requirements_text: string | null;
+  book_page: number | null;
+};
+type GapsResponse = { total: number; book_year: number | null; items: Gap[] };
+
 const STREAM_LABEL: Record<string, string> = {
   PHYSICAL_SCIENCE: "Physical Sci",
   BIO_SCIENCE: "Bio Sci",
@@ -205,6 +216,15 @@ export default function RequirementsPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
+  const [gaps, setGaps] = useState<GapsResponse | null>(null);
+  const [gapsOpen, setGapsOpen] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch("/api/bff/admin/requirements/gaps", { cache: "no-store" });
+      if (res.ok) setGaps(await res.json());
+    })();
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300);
@@ -235,10 +255,64 @@ export default function RequirementsPage() {
       <div>
         <h1 className="text-2xl font-medium">Subject Rules</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Curated §2.2 eligibility rules — hand-transcribed from the 2024 handbook. Read-only;
-          edits go through data/seeds/course_requirements_data.py + a migration.
+          Curated §2.2 eligibility rules. Legacy rules are hand-transcribed (edits via
+          data/seeds/course_requirements_data.py + a migration); new courses get their rule at
+          the ingestion gate, written from the book.
         </p>
       </div>
+
+      {gaps && gaps.total > 0 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:bg-amber-950/20">
+          <button
+            type="button"
+            onClick={() => setGapsOpen((v) => !v)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <span className="text-sm font-medium text-amber-900 dark:text-amber-200">
+              {gaps.total} active course{gaps.total === 1 ? "" : "s"} ha
+              {gaps.total === 1 ? "s" : "ve"} no subject rule — the engine serves them on
+              stream alone
+            </span>
+            {gapsOpen ? (
+              <ChevronDown className="h-4 w-4 shrink-0 text-amber-700" />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0 text-amber-700" />
+            )}
+          </button>
+          <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+            Ungated-by-design for the legacy catalog, but each one is exactly the state that
+            let 131&apos;s restriction rot in a notes field.
+            {gaps.book_year
+              ? ` The ${gaps.book_year} book's own wording is shown below — write the rule from it.`
+              : " No ingested book carries course details yet — the book's wording will appear here after the next handbook extraction."}
+          </p>
+          {gapsOpen ? (
+            <div className="mt-3 max-h-96 space-y-2 overflow-y-auto">
+              {gaps.items.map((g) => (
+                <div key={g.course_number} className="rounded-md border border-amber-200 bg-white/70 p-2.5 dark:bg-black/20">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="font-mono text-xs font-semibold">{g.course_number}</span>
+                    <span className="text-xs">{g.course_name ?? "—"}</span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {g.course_count} uni-code{g.course_count === 1 ? "" : "s"}
+                      {g.book_page ? ` · book p.${g.book_page}` : ""}
+                    </span>
+                  </div>
+                  {g.book_requirements_text ? (
+                    <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">
+                      {g.book_requirements_text}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[11px] italic text-muted-foreground">
+                      the ingested book does not describe this course — read the PDF directly
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
