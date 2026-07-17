@@ -337,6 +337,14 @@ export function ChangeSetReview({ runId }: { runId: string }) {
                   const bookIntake = c.after_value?.book_intake as number | undefined;
                   const detailsPage = c.after_value?.book_details_page as number | undefined;
                   const mayBeIncomplete = c.after_value?.streams_may_be_incomplete === true;
+                  // Phase 9.6 — the block's remaining printed facts, applied
+                  // with the course when it is created
+                  const bookDuration = c.after_value?.book_duration_years as number | undefined;
+                  const bookMediumText = c.after_value?.book_medium_text as string | undefined;
+                  const mediumNeedsReview = c.after_value?.book_medium_needs_review === true;
+                  const bookAptitude = c.after_value?.book_requires_aptitude as
+                    | boolean
+                    | undefined;
                   const details = (c.after_value?.details as CutoffDelta[] | undefined) ?? [];
                   return (
                     <div key={c.change_id} className="rounded-lg border p-3">
@@ -461,7 +469,19 @@ export function ChangeSetReview({ runId }: { runId: string }) {
                                     What the book says about this course
                                     {detailsPage ? ` (p.${detailsPage})` : ""}
                                     {bookIntake ? ` · proposed intake ${bookIntake}` : ""}
+                                    {bookDuration ? ` · ${bookDuration} years` : ""}
+                                    {bookMediumText && !mediumNeedsReview
+                                      ? ` · medium: ${bookMediumText}`
+                                      : ""}
+                                    {bookAptitude ? " · practical/aptitude test required" : ""}
                                   </summary>
+                                  {mediumNeedsReview ? (
+                                    <p className="mt-2 rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+                                      ⚠ <strong>The medium differs per institution</strong> — the
+                                      book prints: &ldquo;{bookMediumText}&rdquo;. No medium is set
+                                      automatically; assign it per Uni-Code after applying.
+                                    </p>
+                                  ) : null}
                                   {/* the book's own words, verbatim — the admin
                                       confirms against this, and authors the
                                       subject rule below from it (D6) */}

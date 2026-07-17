@@ -40,10 +40,12 @@ from sqlalchemy import delete, text, update as sa_update
 
 from core.config import settings
 from core.db import AsyncSessionLocal
+from core.ingestion.aptitude_section import parse_aptitude_codes
 from core.ingestion.artifact_store import artifact_path, put_artifact
 from core.ingestion.book_search import build_book_text, present_courses
-from core.ingestion.course_details import parse_course_details
+from core.ingestion.course_details import parse_section_22
 from core.ingestion.column_mapper import suggest_mappings
+from core.ingestion.pdf_pages import iter_pages_chunked
 from core.ingestion.grid_extractor import (
     consolidate,
     extract_grid,
@@ -74,21 +76,34 @@ def _pages_to_spec(pages: list[int]) -> str:
 def _extract_and_index(pdf_path: str, pages: list[int] | None):
     """Synchronous CPU-bound stage: grid + consolidation + whole-book text +
     the book's own Uni-Code section (the authoritative name -> code table) +
-    Section 2.2 (what the book says about each course — Phase 9.1).
+    Section 2.2 (what the book says about each course — Phase 9.1) + the
+    practical/aptitude-test table (Phase 9.6).
 
     Each whole-book PDF sweep here (grid page-detect, book text, Uni-Code
-    detect, Section 2.2) iterates in chunks that close and reopen the handle,
-    so pdfminer's per-page memory accumulation is released instead of stacking
-    into an OOM on a memory-constrained worker. See core/ingestion/pdf_pages.
+    detect, page-text read) iterates in chunks that close and reopen the
+    handle, so pdfminer's per-page memory accumulation is released instead of
+    stacking into an OOM on a memory-constrained worker. The §2.2 and aptitude
+    parsers share ONE page-text sweep — both are pure functions over the same
+    (page, text) list. See core/ingestion/pdf_pages.
     """
     extraction = extract_grid(pdf_path, pages)
     logical, conflict_warnings = consolidate(extraction)
     book_text = build_book_text(pdf_path) if logical else ""
     book_rows, book_warnings = parse_unicode_section(pdf_path) if logical else ([], [])
-    course_details = parse_course_details(pdf_path) if logical else {}
+    course_details = {}
+    aptitude_codes: list[str] = []
+    aptitude_page = None
+    aptitude_warnings: list[str] = []
+    if logical:
+        page_texts = [
+            (pno, page.extract_text() or "") for pno, page in iter_pages_chunked(pdf_path)
+        ]
+        course_details = parse_section_22(page_texts)
+        aptitude_codes, aptitude_page, aptitude_warnings = parse_aptitude_codes(page_texts)
     return (
         extraction, logical, conflict_warnings,
-        book_text, book_rows, book_warnings, course_details,
+        book_text, book_rows, book_warnings + aptitude_warnings,
+        course_details, aptitude_codes, aptitude_page,
     )
 
 
@@ -147,7 +162,8 @@ async def extract_pdf_job(
             pages = parse_pages_spec(cutoff_pages) if cutoff_pages else None
             (
                 extraction, logical, conflict_warnings,
-                book_text, book_rows, book_warnings, course_details,
+                book_text, book_rows, book_warnings,
+                course_details, aptitude_codes, aptitude_page,
             ) = await asyncio.to_thread(_extract_and_index, str(pdf_file), pages)
 
             if not logical:
@@ -185,6 +201,18 @@ async def extract_pdf_job(
                     db, run_id, "course_details.json",
                     json.dumps(
                         {k: asdict(v) for k, v in course_details.items()}
+                    ).encode("utf-8"),
+                )
+
+                # The book's own practical/aptitude-test table (Phase 9.6):
+                # per-Uni-Code, drives the student-facing conditional badge.
+                # Read from the printed table only; an empty list plus a
+                # warning means "the table could not be read", never "nobody
+                # needs a test".
+                await put_artifact(
+                    db, run_id, "aptitude_codes.json",
+                    json.dumps(
+                        {"codes": aptitude_codes, "page": aptitude_page}
                     ).encode("utf-8"),
                 )
 

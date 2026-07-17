@@ -17,7 +17,21 @@ type AuditItem = {
   book_may_be_incomplete: boolean;
   severity: "invisible" | "over_granted" | string;
 };
-type AuditResponse = { exam_year: number | null; courses_in_book: number; items: AuditItem[] };
+// Phase 9.6 — aptitude flags measured against the book's own test table
+type AptitudeItem = {
+  course_code: string;
+  name: string | null;
+  book_requires: boolean;
+  db_requires: boolean;
+  page_number: number | null;
+  severity: "unwarned" | "over_warned" | string;
+};
+type AuditResponse = {
+  exam_year: number | null;
+  courses_in_book: number;
+  items: AuditItem[];
+  aptitude_items?: AptitudeItem[];
+};
 
 /** Phase 9.3b — the live catalog measured against THIS book.
  *
@@ -44,10 +58,13 @@ export function CatalogAuditCard({ runId }: { runId: string }) {
 
   if (loading) return null;
   // No artifact (a run from before Section 2.2 was read) — say nothing rather
-  // than imply the catalog was checked and found clean.
-  if (!data || data.courses_in_book === 0) return null;
+  // than imply the catalog was checked and found clean. The aptitude table is
+  // read independently, so its findings still show if only §2.2 came up empty.
+  if (!data || (data.courses_in_book === 0 && (data.aptitude_items ?? []).length === 0))
+    return null;
 
   const items = data.items;
+  const aptitude = data.aptitude_items ?? [];
 
   return (
     <Card>
@@ -130,6 +147,56 @@ export function CatalogAuditCard({ runId }: { runId: string }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Phase 9.6 — the aptitude flag vs the book's own test table. This
+            drives the student-facing conditional badge, so both directions
+            hurt: unwarned students skip a compulsory test; over-warned ones
+            may not apply at all. */}
+        {aptitude.length > 0 && (
+          <div className="mt-4 space-y-2 border-t pt-4">
+            <p className="text-sm font-medium">
+              Aptitude-test flags: {aptitude.length} course
+              {aptitude.length === 1 ? "" : "s"} disagree with the book&apos;s test table
+              {aptitude[0]?.page_number ? ` (p.${aptitude[0].page_number})` : ""}
+            </p>
+            {aptitude.map((a) => (
+              <div
+                key={a.course_code}
+                className={cn(
+                  "rounded-lg border p-3",
+                  a.severity === "unwarned"
+                    ? "border-red-300 bg-red-50"
+                    : "border-amber-300 bg-amber-50",
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs font-semibold">{a.course_code}</span>
+                  <span className="text-sm font-medium">{a.name}</span>
+                </div>
+                <p
+                  className={cn(
+                    "mt-1 text-xs",
+                    a.severity === "unwarned" ? "text-red-900" : "text-amber-900",
+                  )}
+                >
+                  {a.severity === "unwarned" ? (
+                    <>
+                      The book requires a practical/aptitude test — <strong>we never tell the
+                      student</strong>. They would list it, skip the test, and be deemed
+                      ineligible after the one yearly application closes.
+                    </>
+                  ) : (
+                    <>
+                      We warn about a practical/aptitude test <strong>the book&apos;s table no
+                      longer lists</strong> — a hurdle that may not exist can scare a student
+                      off applying.
+                    </>
+                  )}
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

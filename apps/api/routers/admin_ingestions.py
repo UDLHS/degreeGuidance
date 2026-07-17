@@ -74,7 +74,7 @@ from core.ingestion.artifact_store import (
     local_artifact_path,
     put_artifact,
 )
-from core.ingestion.catalog_audit import audit_streams
+from core.ingestion.catalog_audit import audit_aptitude, audit_streams
 from core.ingestion.column_mapper import normalize_label
 from core.ingestion.course_details import details_from_artifact
 from core.ingestion.grid_extractor import DISTRICTS_ORDER, parse_pages_spec
@@ -89,6 +89,7 @@ from core.models.cutoffs import (
     ParseError,
 )
 from core.schemas.admin_ingestion import (
+    AptitudeAuditItem,
     BulkConfirmResponse,
     CatalogAuditItem,
     CatalogAuditResponse,
@@ -507,9 +508,31 @@ async def catalog_audit(
     # invisible first: it costs a student a degree they could have had, whereas
     # over_granted shows them one they cannot take.
     found.sort(key=lambda d: (d.severity != "invisible", d.course_number))
+
+    # Phase 9.6 — the aptitude flag, measured against the book's own test
+    # table. None (artifact absent or table unreadable) compares nothing:
+    # an unreadable table is not a claim that nobody needs a test.
+    apt_raw = await load_artifact(db, str(run_id), "aptitude_codes.json")
+    apt_payload = json.loads(apt_raw) if apt_raw else None
+    apt_found = await audit_aptitude(
+        db,
+        set(apt_payload["codes"]) if apt_payload and apt_payload.get("codes") else None,
+        apt_payload.get("page") if apt_payload else None,
+    )
     return CatalogAuditResponse(
         exam_year=run.year,
         courses_in_book=len(details),
+        aptitude_items=[
+            AptitudeAuditItem(
+                course_code=a.course_code,
+                name=a.name,
+                book_requires=a.book_requires,
+                db_requires=a.db_requires,
+                page_number=a.page_number,
+                severity=a.severity,
+            )
+            for a in apt_found
+        ],
         items=[
             CatalogAuditItem(
                 course_number=d.course_number,
@@ -1024,6 +1047,7 @@ async def _book_prefill(
     artifact: dict,
     by_code: dict[str, list[ExtractionColumn]],
     course_details: dict[str, dict[str, Any]] | None = None,
+    aptitude_codes: set[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Phase 9.2 — what the BOOK already told us about each course, for the
     new-course review gate: code -> {name_en, university_id, book_university,
@@ -1108,6 +1132,25 @@ async def _book_prefill(
             detail["book_details_page"] = cd["page_number"]
         if not detail.get("name_en") and cd.get("name"):
             detail["name_en"] = cd["name"]
+        # Phase 9.6 — the block's remaining printed facts. Absent = the book
+        # printed nothing; never defaulted.
+        if cd.get("duration_years") is not None:
+            detail["book_duration_years"] = cd["duration_years"]
+        if cd.get("medium_text"):
+            detail["book_medium_text"] = cd["medium_text"]
+            detail["book_medium_codes"] = list(cd.get("medium_codes") or [])
+            if cd.get("medium_needs_review"):
+                # per-institution mediums (e.g. Siddha/036: Jaffna-Tamil,
+                # Trincomalee-English) — a human assigns them per Uni-Code
+                detail["book_medium_needs_review"] = True
+
+    # Phase 9.6 — the practical/aptitude-test table is per Uni-Code and only a
+    # STATEMENT when the table was actually read: then a code's absence means
+    # "no test". aptitude_codes=None (table unreadable / older run) states
+    # nothing, so the field is simply absent.
+    if aptitude_codes is not None:
+        for code in set(out) | {c.strip().upper() for c in by_code}:
+            out.setdefault(code, {})["book_requires_aptitude"] = code in aptitude_codes
 
     return out
 
@@ -1288,7 +1331,16 @@ async def confirm_mapping(
     # as "the book said nothing" rather than as a claim.
     details_raw = await load_artifact(db, str(run_id), "course_details.json")
     course_details = json.loads(details_raw) if details_raw else {}
-    book_details = await _book_prefill(db, artifact, by_code, course_details)
+    aptitude_raw = await load_artifact(db, str(run_id), "aptitude_codes.json")
+    aptitude_payload = json.loads(aptitude_raw) if aptitude_raw else None
+    aptitude_codes = (
+        set(aptitude_payload.get("codes") or [])
+        if aptitude_payload and aptitude_payload.get("codes")
+        else None
+    )
+    book_details = await _book_prefill(
+        db, artifact, by_code, course_details, aptitude_codes=aptitude_codes
+    )
     changes = await compute_handbook_diff(
         db, extracted, run.year, present_in_book=present, book_details=book_details
     )
@@ -1633,13 +1685,33 @@ async def apply_changes(
             # Created ACTIVE (Phase 9 D1). Safe only because approve guarantees
             # eligible streams, written in this same transaction below: the
             # course becomes visible and complete together, or not at all.
+            # Duration and the aptitude flag ride along when the book printed
+            # them (Phase 9.6) — read facts, shown on the gate card the admin
+            # just approved; absent = NULL/false, never a default.
             await db.execute(
                 text(
-                    "INSERT INTO courses (course_code, course_number, university_id, name_en, is_active) "
-                    "VALUES (:code, :num, :uni, :name, true)"
+                    "INSERT INTO courses (course_code, course_number, university_id, "
+                    "  name_en, is_active, duration_years, requires_aptitude_test) "
+                    "VALUES (:code, :num, :uni, :name, true, :dur, :apt)"
                 ),
-                {"code": ch.course_code, "num": course_number, "uni": uni, "name": name},
+                {
+                    "code": ch.course_code, "num": course_number, "uni": uni, "name": name,
+                    "dur": av.get("book_duration_years"),
+                    "apt": bool(av.get("book_requires_aptitude")),
+                },
             )
+            # Mediums (Phase 9.6): written only when the book's Medium field
+            # parsed to unambiguous language names. A per-institution medium
+            # (book_medium_needs_review) writes nothing — a human assigns it.
+            for mcode in av.get("book_medium_codes") or []:
+                await db.execute(
+                    text(
+                        "INSERT INTO course_mediums (course_code, medium_id) "
+                        "SELECT :cc, medium_id FROM mediums WHERE code = :mc "
+                        "ON CONFLICT DO NOTHING"
+                    ),
+                    {"cc": ch.course_code, "mc": mcode},
+                )
             for sc in streams:
                 await db.execute(
                     text(

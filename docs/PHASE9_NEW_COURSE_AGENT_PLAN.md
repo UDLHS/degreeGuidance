@@ -164,11 +164,40 @@ user whether a new course warrants an auto-drafted article (9.4's open half)
 or whether factsheets cover it.
 
 ### 9.6 — the rest of the book (user's list, 2026-07-16)
-- **Mediums** (P3) — the book prints it; nothing reads it.
-- **Duration, aptitude test, proposed intake** — all printed; students already
-  see aptitude badges.
-- **One course = many universities** — `Available University: X, Y, Z`, each its
-  own Uni-Code. One "new course" (142) can mean several rows (142A/142B).
+
+**9.6a DONE (2026-07-17) — mediums, duration, aptitude READ from the book:**
+
+- `course_details.py` now reads each §2.2 block's `Duration :` (messy variants
+  tolerated, "06 years [05 academic years + internship]" → 6.0) and `Medium :`
+  — VERBATIM, multi-line capture with a strict continuation rule (a runaway
+  once swallowed whole pages of section prose). Codes (EN/SI/TA) are parsed
+  only when every token is unambiguously a language; a per-institution medium
+  (Siddha/036: Jaffna-Tamil, Trincomalee-English) is flagged for a human,
+  never guessed.
+- **Anchor bug found + fixed:** the book prints `(Course Code : 001)` (colon)
+  for Medicine and Dental Surgery — both were INVISIBLE to the reader since
+  9.1b (never prefilled, never audited). Also handled: the plural anchor
+  `(Course Codes : Mass Media - 020; Performing Arts - 041)`. 2024 coverage:
+  115 → 125 blocks.
+- `aptitude_section.py` reads the book's own per-Uni-Code test table by its
+  PRINTED caps heading (the TOC prints the same words in title case — decoy).
+  All three books: 24 codes; 2024/2023 match the hand-seeded flags exactly;
+  **the 2025 book drops 082D and adds 141D** — the audit now surfaces exactly
+  this (`aptitude_items`, severity `unwarned` > `over_warned`).
+- Wired: one page-text sweep feeds both parsers in extract_pdf (new artifact
+  `aptitude_codes.json`); `_book_prefill` carries book_duration/medium/
+  aptitude; **apply writes them with the course** (mediums only when
+  unambiguous); the gate card shows them; the audit card gained the aptitude
+  section.
+- `scripts/backfill_course_facts_from_book.py` (dry-run default, idempotent,
+  fills only-empty): dev DB went 0 → **138 durations, 69 courses with medium
+  rows** — everything the 2024 book prints. 036 correctly held for a human.
+  **Run it on PROD alongside the 131 streams fix.**
+
+**Still open in 9.6:**
+- **Student UI rendering** of mediums/duration — student-side branch decision.
+- **One course = many universities** at the gate — 142A/142B arrive as
+  separate cards; nothing groups them for one review.
 - **Renames** — a renamed course reads as *removed + added*, so we would
   deactivate a live course and create a duplicate beside it.
 - **Removed courses** — already handled by the diff's whole-book safeguard;

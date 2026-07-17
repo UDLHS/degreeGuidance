@@ -43,7 +43,7 @@ summariser to use downstream. It is never parsed into eligibility rules here.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from core.ingestion.pdf_pages import iter_pages_chunked
 
@@ -102,10 +102,54 @@ ALL_SIX_STREAMS: list[str] = sorted(c for _p, c in _STREAM_NAMES)
 #: bare "2.2.N <NAME> STREAM" line is a section banner; the rest name a course.
 _SECTION_RE = re.compile(r"^\s*(2\.2\.[1-8])(\.\d+)?\s+(.*?)\s*$")
 _NUMBERED_TITLE_RE = re.compile(r"^\s*\d{1,3}\.\s+(\S.*?)\s*$")
-_COURSE_CODE_RE = re.compile(r"\(\s*Course\s*Code\s*[-–]\s*([0-9]{2,3})\s*\)", re.I)
-_INTAKE_RE = re.compile(r"\(\s*Proposed\s*Intake\s*[-–]\s*([0-9,]+)\s*\)", re.I)
+#: The anchor is printed THREE ways (all measured in the 2024 book):
+#:   "(Course Code - 021)"  — most blocks
+#:   "(Course Code : 001)"  — Medicine and Dental Surgery, colon not hyphen;
+#:                            missing this hid the book's two flagship courses
+#:                            from the reader entirely (found 2026-07-17)
+#:   "(Course Codes : Mass Media - 020; Performing Arts - 041)" — one block
+#:                            documenting TWO courses of study (Arts SP)
+#: So the anchor matches on its words, and every 2-3 digit number inside the
+#: parentheses counts — the block's facts apply to each of them.
+_COURSE_CODE_RE = re.compile(r"\(\s*Course\s*Codes?\s*[:\-–]\s*([^)]*)\)", re.I)
+_ANCHOR_NUMBER_RE = re.compile(r"\b(\d{2,3})\b")
+_INTAKE_RE = re.compile(r"\(\s*Proposed\s*Intake\s*[:\-–]\s*([0-9,]+)\s*\)", re.I)
 #: page furniture repeated on every page — noise inside a captured block
 _FOOTER_RE = re.compile(r"^\s*ACADEMIC YEAR .*$|^.*UNIVERSITY GRANTS COMMISSION.*$", re.M | re.I)
+
+#: The block's labelled fields (9.6). The bullet glyph () does not always
+#: survive pdfminer, and spacing around the colon varies within one book
+#: ("Duration : 04 years" next to "Duration: 03 years" — measured), so labels
+#: match on their words with any non-letter prefix. An UNLABELLED line under a
+#: labelled one is that field's continuation (measured: Siddha/036's medium
+#: block spans three lines, one institution per line).
+_DURATION_RE = re.compile(r"^[^A-Za-z0-9]*Duration\s*:\s*(.+?)\s*$", re.I)
+_MEDIUM_RE = re.compile(r"^[^A-Za-z0-9]*Medium\s*:\s*(.*?)\s*$", re.I)
+#: any labelled field line — ends a running medium capture
+_FIELD_LABEL_RE = re.compile(
+    r"^[^A-Za-z0-9]*(Degree\s+Programmes?|Available\s+(Universit|Institution)|"
+    r"Duration|Medium)\b[^:]*:",
+    re.I,
+)
+_DURATION_YEARS_RE = re.compile(r"(\d+(?:\.\d+)?)")
+
+#: What the book may print as a medium, mapped to the mediums table. A token
+#: outside this table (a university name, a campus) means the medium DIFFERS
+#: per institution — parsed codes would be a guess, so the whole value is
+#: carried verbatim and flagged for a human instead.
+_MEDIUM_TOKEN_CODES = {"english": "EN", "sinhala": "SI", "tamil": "TA"}
+
+#: A line that can CONTINUE a multi-line Medium value — and nothing else can.
+#: Measured continuation shapes (Siddha/036): an institution line left dangling
+#: on a connector ("Trincomalee Campus, … -") and a bare language ("English");
+#: "University of Jaffna - Tamil" covers the institution-language form. The
+#: block's medium is its LAST labelled field, so anything after it is the
+#: section's closing prose — without this gate the capture swallowed entire
+#: pages of it (measured: 137 Primary Education's O/L rules, 139's SECTION 3).
+_MEDIUM_CONTINUATION_RE = re.compile(
+    r"(?:[-–]\s*$)|(?:^\s*(?:English|Sinhala|Tamil)\s*$)|(?:[-–]\s*(?:English|Sinhala|Tamil)\s*$)",
+    re.I,
+)
 
 
 @dataclass
@@ -129,6 +173,40 @@ class BookCourseDetail:
     #: stream, only subjects — so stream_codes is knowably INCOMPLETE and a
     #: human must widen it. Never silently trusted: see subject_only_alternative.
     streams_may_be_incomplete: bool = False
+    #: "Duration : 04 years" -> 4.0; None when the block prints no duration
+    duration_years: float | None = None
+    #: the Medium field VERBATIM (can span lines, one institution per line)
+    medium_text: str | None = None
+    #: EN/SI/TA — filled ONLY when every printed token is unambiguously a
+    #: language ("English", "Sinhala / English"); empty otherwise
+    medium_codes: list[str] = field(default_factory=list)
+    #: the book prints a medium but it names institutions (differs per campus)
+    #: — a human must assign per-Uni-Code; never parsed into codes here
+    medium_needs_review: bool = False
+
+
+def parse_medium_codes(medium_text: str) -> tuple[list[str], bool]:
+    """The Medium field's text -> (codes, needs_review).
+
+    Codes come back ONLY when every token is a plain language name — measured
+    shapes: "English", "Sinhala", "Sinhala / English". The moment anything
+    else appears ("University of Jaffna - Tamil\\nTrincomalee Campus … -
+    English", Siddha/036) the medium differs per institution: mapping that to
+    one course-wide list would tell a Tamil-medium student the Trincomalee
+    campus teaches in Tamil. So: no codes, needs_review=True, the verbatim
+    text does the talking.
+    """
+    tokens = [t.strip() for t in re.split(r"[/,\n]", medium_text) if t.strip()]
+    if not tokens:
+        return [], False
+    codes: list[str] = []
+    for t in tokens:
+        code = _MEDIUM_TOKEN_CODES.get(t.lower())
+        if code is None:
+            return [], True
+        if code not in codes:
+            codes.append(code)
+    return sorted(codes), False
 
 
 def streams_named_in(text: str) -> list[str]:
@@ -225,11 +303,71 @@ def parse_section_22(pages: list[tuple[int, str]]) -> dict[str, BookCourseDetail
     section_stream: str | None = None
     last_title: str | None = None
     current: BookCourseDetail | None = None
+    #: further course numbers named by the SAME anchor ("Course Codes : Mass
+    #: Media - 020; Performing Arts - 041") — the block's facts apply to each
+    current_extra_numbers: list[str] = []
     buf: list[str] = []
+    #: lines of a running "Medium :" capture (9.6) — the value may continue on
+    #: unlabelled lines below it, one institution per line (measured: 036)
+    medium_capture: list[str] | None = None
+
+    def _end_medium_capture() -> None:
+        """Freeze a running Medium capture onto the current block (first value
+        wins — the book prints one Medium field per block)."""
+        nonlocal medium_capture
+        if current is not None and medium_capture is not None:
+            medium_text = "\n".join(medium_capture).strip()
+            if medium_text and current.medium_text is None:
+                current.medium_text = medium_text
+                current.medium_codes, current.medium_needs_review = parse_medium_codes(
+                    medium_text
+                )
+        medium_capture = None
+
+    def _merge(detail: BookCourseDetail) -> None:
+        prev = out.get(detail.course_number)
+        if prev is None:
+            out[detail.course_number] = detail
+            return
+        # A course open to several streams is PRINTED ONCE PER STREAM
+        # SECTION, each with its own "(Course Code - NNN)" block and its
+        # own subject rules (Biomedical Technology/123 appears under both
+        # Engineering Technology and Biosystems Technology). Union them:
+        # letting the last block win would silently drop half the
+        # streams — i.e. half the students who may apply.
+        for s in detail.stream_codes:
+            if s not in prev.stream_codes:
+                prev.stream_codes.append(s)
+        prev.stream_codes.sort()
+        prev.streams_are_stated = prev.streams_are_stated or detail.streams_are_stated
+        prev.cross_stream = prev.cross_stream or detail.cross_stream
+        prev.streams_may_be_incomplete = (
+            prev.streams_may_be_incomplete or detail.streams_may_be_incomplete
+        )
+        prev.name = prev.name or detail.name
+        if detail.requirements_text:
+            # keep every section's rules — they differ per stream
+            prev.requirements_text = (
+                f"{prev.requirements_text}\n\n{detail.requirements_text}".strip()
+            )
+        if prev.proposed_intake is None:
+            prev.proposed_intake = detail.proposed_intake
+        if prev.duration_years is None:
+            prev.duration_years = detail.duration_years
+        # A cross-stream course is printed once per section; if the
+        # sections disagree on medium, no code list is safe — flag it.
+        if prev.medium_text is None:
+            prev.medium_text = detail.medium_text
+            prev.medium_codes = detail.medium_codes
+            prev.medium_needs_review = prev.medium_needs_review or detail.medium_needs_review
+        elif detail.medium_text and detail.medium_text != prev.medium_text:
+            prev.medium_codes = []
+            prev.medium_needs_review = True
 
     def _flush() -> None:
-        nonlocal current, buf
+        nonlocal current, current_extra_numbers, buf, medium_capture
         if current is not None:
+            _end_medium_capture()
             current.requirements_text = _FOOTER_RE.sub("", "\n".join(buf)).strip()
             if not current.streams_are_stated:
                 current.stream_codes = cross_stream_eligibility(current.requirements_text)
@@ -238,34 +376,20 @@ def parse_section_22(pages: list[tuple[int, str]]) -> dict[str, BookCourseDetail
                 current.streams_may_be_incomplete = subject_only_alternative(
                     current.requirements_text
                 )
-            prev = out.get(current.course_number)
-            if prev is None:
-                out[current.course_number] = current
-            else:
-                # A course open to several streams is PRINTED ONCE PER STREAM
-                # SECTION, each with its own "(Course Code - NNN)" block and its
-                # own subject rules (Biomedical Technology/123 appears under both
-                # Engineering Technology and Biosystems Technology). Union them:
-                # letting the last block win would silently drop half the
-                # streams — i.e. half the students who may apply.
-                for s in current.stream_codes:
-                    if s not in prev.stream_codes:
-                        prev.stream_codes.append(s)
-                prev.stream_codes.sort()
-                prev.streams_are_stated = prev.streams_are_stated or current.streams_are_stated
-                prev.cross_stream = prev.cross_stream or current.cross_stream
-                prev.streams_may_be_incomplete = (
-                    prev.streams_may_be_incomplete or current.streams_may_be_incomplete
-                )
-                prev.name = prev.name or current.name
-                if current.requirements_text:
-                    # keep every section's rules — they differ per stream
-                    prev.requirements_text = (
-                        f"{prev.requirements_text}\n\n{current.requirements_text}".strip()
+            _merge(current)
+            # A plural anchor documents several courses of study in one block
+            # (Arts SP: Mass Media/020 + Performing Arts/041) — the same facts
+            # apply to each number, on independent copies.
+            for num in current_extra_numbers:
+                _merge(
+                    replace(
+                        current,
+                        course_number=num,
+                        stream_codes=list(current.stream_codes),
+                        medium_codes=list(current.medium_codes),
                     )
-                if prev.proposed_intake is None:
-                    prev.proposed_intake = current.proposed_intake
-        current, buf = None, []
+                )
+        current, current_extra_numbers, buf, medium_capture = None, [], [], None
 
     for pno, text in pages:
         for line in text.splitlines():
@@ -287,19 +411,22 @@ def parse_section_22(pages: list[tuple[int, str]]) -> dict[str, BookCourseDetail
                     last_title = None
                 continue
 
-            code = _COURSE_CODE_RE.search(line)
-            if code and in_section:
-                _flush()
-                current = BookCourseDetail(
-                    course_number=code.group(1).zfill(3),
-                    name=last_title,
-                    page_number=pno,
-                    cross_stream=(section_stream is None),
-                    streams_are_stated=(section_stream is not None),
-                    stream_codes=[section_stream] if section_stream else [],
-                )
-                last_title = None
-                continue
+            anchor = _COURSE_CODE_RE.search(line)
+            if anchor and in_section:
+                numbers = _ANCHOR_NUMBER_RE.findall(anchor.group(1))
+                if numbers:
+                    _flush()
+                    current = BookCourseDetail(
+                        course_number=numbers[0].zfill(3),
+                        name=last_title,
+                        page_number=pno,
+                        cross_stream=(section_stream is None),
+                        streams_are_stated=(section_stream is not None),
+                        stream_codes=[section_stream] if section_stream else [],
+                    )
+                    current_extra_numbers = [n.zfill(3) for n in numbers[1:]]
+                    last_title = None
+                    continue
 
             if current is not None:
                 intake = _INTAKE_RE.search(line)
@@ -309,6 +436,32 @@ def parse_section_22(pages: list[tuple[int, str]]) -> dict[str, BookCourseDetail
                     except ValueError:
                         pass
                     continue
+                # 9.6 — the block's labelled facts. The lines STAY in buf too:
+                # requirements_text remains the verbatim block, unchanged.
+                duration = _DURATION_RE.match(line)
+                medium = _MEDIUM_RE.match(line)
+                if duration:
+                    if current.duration_years is None:
+                        num = _DURATION_YEARS_RE.search(duration.group(1))
+                        if num:
+                            current.duration_years = float(num.group(1))
+                    _end_medium_capture()  # a new labelled field ends a capture
+                elif medium:
+                    _end_medium_capture()
+                    medium_capture = [medium.group(1)] if medium.group(1) else []
+                elif _FIELD_LABEL_RE.match(line):
+                    _end_medium_capture()
+                elif medium_capture is not None and not _FOOTER_RE.match(line):
+                    stripped = line.strip()
+                    if stripped:
+                        if _MEDIUM_CONTINUATION_RE.search(stripped):
+                            medium_capture.append(stripped)
+                        else:
+                            # Medium is the block's last labelled field, so a
+                            # non-continuation line means the value has ended
+                            # and the section's closing prose has begun. Freeze
+                            # what was captured; never swallow the prose.
+                            _end_medium_capture()
                 buf.append(line)
 
             title = _NUMBERED_TITLE_RE.match(line)

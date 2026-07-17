@@ -142,3 +142,146 @@ class TestStreamsNamedIn:
             "BIO_SCIENCE",
             "PHYSICAL_SCIENCE",
         ]
+
+
+# -- Phase 9.6: duration, medium, and the anchor shapes -----------------------
+
+from core.ingestion.aptitude_section import parse_aptitude_codes  # noqa: E402
+from core.ingestion.course_details import parse_medium_codes, parse_section_22  # noqa: E402
+
+
+def _one_page(text: str) -> list[tuple[int, str]]:
+    return [(58, text)]
+
+
+class TestDurationAndMedium:
+    def test_reads_the_plain_block(self):
+        # 131 Financial Economics, 2024 p.117 (bullet glyph stripped by pdfminer
+        # on some lines -- both forms are real)
+        page = """2.2.8.42 Financial Economics
+(Course Code - 131)
+(Proposed Intake - 50)
+Minimum eligibility requirements for admission :
+At least a B grade in Economics in Art Stream or Commerce Stream.
+ Degree Programme : Bachelor of Arts Honours in Financial Economics
+ Available University : University of Sri Jayewardenepura
+ Duration : 04 years
+ Medium : English
+"""
+        d = parse_section_22(_one_page(page))["131"]
+        assert d.duration_years == 4.0
+        assert d.medium_text == "English"
+        assert d.medium_codes == ["EN"]
+        assert d.medium_needs_review is False
+
+    def test_duration_survives_the_internship_suffix(self):
+        # Siddha/036, 2024 p.62
+        page = """2.2.3.10 Siddha Medicine and Surgery
+(Course Code - 036)
+ Duration : 06 years [05 academic years and 01-year (final) internship]
+"""
+        assert parse_section_22(_one_page(page))["036"].duration_years == 6.0
+
+    def test_per_institution_medium_is_flagged_never_parsed(self):
+        # Siddha/036, 2024 p.62 -- Jaffna teaches in Tamil, Trincomalee in
+        # English; one course-wide code list would be a lie for both campuses
+        page = """2.2.3.10 Siddha Medicine and Surgery
+(Course Code - 036)
+ Duration : 06 years
+ Medium : University of Jaffna - Tamil
+Trincomalee Campus, Eastern University, Sri Lanka -
+English
+2.2.3.11 Biological Science
+(Course Code - 006)
+"""
+        d = parse_section_22(_one_page(page))["036"]
+        assert d.medium_codes == []
+        assert d.medium_needs_review is True
+        assert "Trincomalee" in d.medium_text
+
+    def test_medium_capture_never_swallows_the_sections_closing_prose(self):
+        # 137 Primary Education, 2024 p.119 -- the O/L requirements follow the
+        # Medium line; an early build captured them all as "the medium"
+        page = """2.2.8.47 Primary Education
+(Course Code - 137)
+ Duration : 04 years
+ Medium : Sinhala
+In addition to that, candidates must fulfill the following requirements at the G.C.E.
+(Ordinary Level) Examination.
+"""
+        d = parse_section_22(_one_page(page))["137"]
+        assert d.medium_text == "Sinhala"
+        assert d.medium_codes == ["SI"]
+
+    def test_split_medium_list(self):
+        assert parse_medium_codes("Sinhala / English") == (["EN", "SI"], False)
+        assert parse_medium_codes("English") == (["EN"], False)
+        assert parse_medium_codes("University of Jaffna - Tamil") == ([], True)
+
+
+class TestAnchorShapes:
+    def test_colon_anchor_reads_medicine(self):
+        # 2024 p.58 -- Medicine and Dental use : where every other block
+        # uses -; missing this hid the book two flagship courses entirely
+        page = """2.2.3 BIOLOGICAL SCIENCE STREAM
+2.2.3.1 Medicine
+(Course Code : 001)
+(Proposed Intake : 2095)
+Minimum eligibility requirements for admission :
+At least two C grades and a S grade in Biology, Chemistry and Physics.
+ Duration : 05 years
+"""
+        d = parse_section_22(_one_page(page))["001"]
+        assert d.stream_codes == ["BIO_SCIENCE"]
+        assert d.streams_are_stated is True
+        assert d.proposed_intake == 2095
+        assert d.duration_years == 5.0
+
+    def test_plural_anchor_documents_both_courses(self):
+        # 2024 p.43 -- one block, two courses of study (Arts SP)
+        page = """2.2.1 ARTS STREAM
+2.2.1.2 Arts (SP)
+(Course Codes : Mass Media - 020; Performing Arts - 041)
+Minimum eligibility requirements for admission :
+At least three S grades in Arts subjects.
+ Duration : 04 years
+"""
+        out = parse_section_22(_one_page(page))
+        assert out["020"].duration_years == 4.0
+        assert out["041"].duration_years == 4.0
+        assert out["020"].stream_codes == ["ARTS"] and out["041"].stream_codes == ["ARTS"]
+
+
+class TestAptitudeTable:
+    PAGES = [
+        (5, "Requirement to pass the practical/ aptitude test 152"),  # TOC decoy
+        (159, """REQUIREMENT TO PASS THE PRACTICAL/ APTITUDE TEST
+Every candidate who has listed undermentioned courses of study should pass the test.
+Course of Study University / Campus / Institute Uni-Code
+ARTS (SP) - MASS MEDIA SRIPALEE CAMPUS, UNIVERSITY OF COLOMBO 020S
+ARCHITECTURE UNIVERSITY OF MORATUWA 023G
+MUSIC UNIVERSITY OF SRI JAYEWARDENEPURA 068C
+"""),
+        (160, "Submitting your application: no codes on this page."),
+    ]
+
+    def test_reads_the_table_and_skips_the_toc_decoy(self):
+        codes, page, warnings = parse_aptitude_codes(self.PAGES)
+        assert codes == ["020S", "023G", "068C"]
+        assert page == 159
+        assert warnings == []
+
+    def test_missing_table_is_a_warning_never_a_claim(self):
+        codes, page, warnings = parse_aptitude_codes([(1, "nothing here")])
+        assert codes == [] and page is None
+        assert warnings and "left untouched" in warnings[0]
+
+    def test_table_spanning_a_page_break(self):
+        pages = [
+            (159, "REQUIREMENT TO PASS THE PRACTICAL/ APTITUDE TEST\nMUSIC X 068C"),
+            (160, "DANCE Y 069E"),
+            (161, "no more codes"),
+            (162, "STRAY CODE FAR AWAY 999Z"),
+        ]
+        codes, _page, _w = parse_aptitude_codes(pages)
+        assert codes == ["068C", "069E"]  # 999Z is beyond the table end

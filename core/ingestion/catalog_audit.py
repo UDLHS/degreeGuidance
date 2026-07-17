@@ -69,6 +69,64 @@ class StreamDisagreement:
         return "over_granted"
 
 
+@dataclass
+class AptitudeDisagreement:
+    """One course where the catalog's aptitude flag contradicts the book's own
+    practical/aptitude-test table (Phase 9.6). Per Uni-Code — Music at Jaffna
+    and Music at VPA are separate rows in the book's table."""
+
+    course_code: str
+    name: str | None
+    book_requires: bool
+    db_requires: bool
+    #: where the book's table was printed, so a human can settle it in one look
+    page_number: int | None
+
+    @property
+    def severity(self) -> str:
+        """'unwarned' = the book requires a test we never mention — a student
+        lists the course, skips the test, and is deemed ineligible after the
+        one yearly application closes. 'over_warned' shows a test hurdle that
+        no longer exists — a risk-averse student may not apply at all."""
+        return "unwarned" if self.book_requires else "over_warned"
+
+
+async def audit_aptitude(
+    db: AsyncSession, book_codes: set[str] | None, page_number: int | None
+) -> list[AptitudeDisagreement]:
+    """Compare every active course's requires_aptitude_test with the book's
+    table. book_codes=None means the table could not be read — then there is
+    NOTHING to compare (an unreadable table is not a claim that nobody needs a
+    test). When it was read, absence from it is a real statement: no test.
+    Read-only; a human decides."""
+    if book_codes is None:
+        return []
+    rows = (
+        await db.execute(
+            text(
+                "SELECT course_code, name_en, requires_aptitude_test "
+                "FROM courses WHERE is_active ORDER BY course_code"
+            )
+        )
+    ).all()
+    out: list[AptitudeDisagreement] = []
+    for r in rows:
+        book = r.course_code in book_codes
+        if book != bool(r.requires_aptitude_test):
+            out.append(
+                AptitudeDisagreement(
+                    course_code=r.course_code,
+                    name=r.name_en,
+                    book_requires=book,
+                    db_requires=bool(r.requires_aptitude_test),
+                    page_number=page_number,
+                )
+            )
+    # unwarned first — it costs the student their one yearly application slot
+    out.sort(key=lambda d: (d.severity != "unwarned", d.course_code))
+    return out
+
+
 async def audit_streams(
     db: AsyncSession, details: dict[str, BookCourseDetail]
 ) -> list[StreamDisagreement]:

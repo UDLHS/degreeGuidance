@@ -46,6 +46,8 @@ async def _purge(db: AsyncSession) -> None:
     await db.execute(
         text("DELETE FROM course_requirements WHERE course_number = :n"), {"n": COURSE[:3]}
     )
+    # apply writes the book's mediums (Phase 9.6)
+    await db.execute(text("DELETE FROM course_mediums WHERE course_code = :c"), {"c": COURSE})
     await db.execute(text("DELETE FROM courses WHERE course_code = :c"), {"c": COURSE})
     await db.execute(
         text("DELETE FROM ingestion_runs WHERE year = :y AND run_type = 'pdf_extraction'"),
@@ -640,3 +642,111 @@ async def test_existing_baseline_rule_satisfies_the_gate(
     )
     item = next(i for i in r.json()["items"] if i["course_code"] == COURSE)
     assert item["subject_rule_exists"] is True
+
+
+# -- Phase 9.6: the book's remaining facts arrive with the course ---------------
+
+async def test_apply_writes_duration_medium_and_aptitude_from_the_book(
+    client: AsyncClient, gate: dict, db_session: AsyncSession
+):
+    """The book prints Duration, Medium and the aptitude table; a course
+    created at the gate carries them from birth instead of joining the
+    NULL-catalog backlog."""
+    await db_session.execute(
+        text(
+            "UPDATE handbook_changes SET after_value = CAST(:av AS jsonb) "
+            "WHERE change_id = :i"
+        ),
+        {
+            "i": gate["change_id"],
+            "av": json.dumps({
+                "book_duration_years": 4.0,
+                "book_medium_codes": ["EN", "SI"],
+                "book_medium_text": "Sinhala / English",
+                "book_requires_aptitude": True,
+            }),
+        },
+    )
+    await db_session.commit()
+
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["ARTS"],
+            "subject_rule": RULE,
+        },
+    )
+    assert r.status_code == 200, r.text
+    r = await client.post(
+        f"/api/admin/ingestions/{gate['run_id']}/changes/apply", headers=_auth(gate["token"])
+    )
+    assert r.status_code == 200, r.text
+
+    row = (
+        await db_session.execute(
+            text(
+                "SELECT duration_years, requires_aptitude_test FROM courses "
+                "WHERE course_code = :c"
+            ),
+            {"c": COURSE},
+        )
+    ).one()
+    assert float(row.duration_years) == 4.0
+    assert row.requires_aptitude_test is True
+
+    mediums = (
+        await db_session.execute(
+            text(
+                "SELECT m.code FROM course_mediums cm "
+                "JOIN mediums m ON m.medium_id = cm.medium_id "
+                "WHERE cm.course_code = :c ORDER BY m.code"
+            ),
+            {"c": COURSE},
+        )
+    ).scalars().all()
+    assert list(mediums) == ["EN", "SI"]
+
+
+async def test_apply_without_book_facts_writes_null_never_a_default(
+    client: AsyncClient, gate: dict, db_session: AsyncSession
+):
+    """A book that prints nothing states nothing: duration stays NULL, no
+    medium rows appear, aptitude stays false."""
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["ARTS"],
+            "subject_rule": RULE,
+        },
+    )
+    assert r.status_code == 200
+    r = await client.post(
+        f"/api/admin/ingestions/{gate['run_id']}/changes/apply", headers=_auth(gate["token"])
+    )
+    assert r.status_code == 200, r.text
+
+    row = (
+        await db_session.execute(
+            text(
+                "SELECT duration_years, requires_aptitude_test FROM courses "
+                "WHERE course_code = :c"
+            ),
+            {"c": COURSE},
+        )
+    ).one()
+    assert row.duration_years is None
+    assert row.requires_aptitude_test is False
+    n_mediums = (
+        await db_session.execute(
+            text("SELECT count(*) FROM course_mediums WHERE course_code = :c"), {"c": COURSE}
+        )
+    ).scalar_one()
+    assert n_mediums == 0

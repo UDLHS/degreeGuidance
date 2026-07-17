@@ -169,6 +169,20 @@ class CatalogAuditItem(BaseModel):
     severity: str
 
 
+class AptitudeAuditItem(BaseModel):
+    """One course whose aptitude flag contradicts the book's own test table
+    (Phase 9.6). Per Uni-Code."""
+
+    course_code: str
+    name: str | None = None
+    book_requires: bool
+    db_requires: bool
+    page_number: int | None = None
+    #: "unwarned" (book requires a test we never mention — the student loses
+    #: their one yearly application) or "over_warned"
+    severity: str
+
+
 class CatalogAuditResponse(BaseModel):
     """Phase 9.3b — the live catalog measured against this handbook.
 
@@ -180,6 +194,9 @@ class CatalogAuditResponse(BaseModel):
     courses_in_book: int
     #: disagreements, worst first (invisible before over_granted)
     items: list[CatalogAuditItem]
+    #: aptitude-flag disagreements vs the book's test table (9.6); empty when
+    #: the table was unreadable — absence of a comparison is not agreement
+    aptitude_items: list[AptitudeAuditItem] = []
 
 
 # ── Staged extraction lifecycle (Phase 1 pipeline) ──────────────────────────
