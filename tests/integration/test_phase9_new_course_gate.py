@@ -18,6 +18,7 @@ Sentinel course 996Y, sentinel exam year 2035, purge-first.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -28,6 +29,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 COURSE = "996Y"
 SENTINEL_YEAR = 2035
+# D6: a valid subject rule for approvals that should succeed
+RULE = {"type": "any_n_subjects", "count": 3, "min_grade": "S"}
 
 
 async def _purge(db: AsyncSession) -> None:
@@ -38,6 +41,10 @@ async def _purge(db: AsyncSession) -> None:
     # apply auto-queues a factsheet draft for the new course (Phase 9.4)
     await db.execute(
         text("DELETE FROM factsheet_drafts WHERE course_number = :n"), {"n": COURSE[:3]}
+    )
+    # apply writes the gate-approved subject rule (Phase 9 D6)
+    await db.execute(
+        text("DELETE FROM course_requirements WHERE course_number = :n"), {"n": COURSE[:3]}
     )
     await db.execute(text("DELETE FROM courses WHERE course_code = :c"), {"c": COURSE})
     await db.execute(
@@ -187,6 +194,7 @@ async def test_approve_then_apply_creates_a_visible_course(
             "university_id": gate["university_id"],
             "name_en": "Sentinel Course",
             "stream_codes": ["PHYSICAL_SCIENCE", "BIO_SCIENCE"],
+            "subject_rule": RULE,
         },
     )
     assert r.status_code == 200
@@ -198,6 +206,18 @@ async def test_approve_then_apply_creates_a_visible_course(
     body = r.json()
     assert body["applied_added"] == 1, body
     assert body["skipped"] == []
+
+    # D6: the rule landed with the course, in the same apply
+    rule_row = (
+        await db_session.execute(
+            text(
+                "SELECT subject_rule FROM course_requirements "
+                "WHERE course_number = :n AND exam_year IS NULL"
+            ),
+            {"n": COURSE[:3]},
+        )
+    ).scalar_one()
+    assert rule_row == RULE
 
     row = (
         await db_session.execute(
@@ -498,6 +518,7 @@ async def test_apply_auto_queues_a_factsheet_draft(
             "university_id": gate["university_id"],
             "name_en": "Sentinel Course",
             "stream_codes": ["ARTS"],
+            "subject_rule": RULE,
         },
     )
     assert r.status_code == 200
@@ -514,3 +535,108 @@ async def test_apply_auto_queues_a_factsheet_draft(
         )
     ).scalar_one()
     assert status == "queued"
+
+
+# -- D6: the subject-rule gate -------------------------------------------------
+
+async def test_approve_without_subject_rule_is_refused(
+    client: AsyncClient, gate: dict, db_session: AsyncSession
+):
+    """D6: streams decide who SEES the course; the rule decides who QUALIFIES.
+    Without one the engine serves the course ungated to every ticked stream."""
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["ARTS"],
+        },
+    )
+    assert r.status_code == 422
+    assert "subject rule" in r.json()["detail"].lower()
+
+    status = (
+        await db_session.execute(
+            text("SELECT status FROM handbook_changes WHERE change_id = :i"),
+            {"i": gate["change_id"]},
+        )
+    ).scalar_one()
+    assert status == "pending"
+
+
+async def test_rule_with_a_misspelled_subject_dies_at_the_gate(
+    client: AsyncClient, gate: dict
+):
+    """A rule written against \"Bio\" (catalog: \"Biology\") string-matches no
+    student ever -- the course silently vanishes for everyone. The gate must
+    name the typo instead of storing it."""
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["BIO_SCIENCE"],
+            "subject_rule": {
+                "type": "count_from_list",
+                "subjects": ["Bio", "Chemistry", "Physics"],
+                "count": 3,
+            },
+        },
+    )
+    assert r.status_code == 422
+    assert "Bio" in r.json()["detail"]
+
+
+async def test_existing_baseline_rule_satisfies_the_gate(
+    client: AsyncClient, gate: dict, db_session: AsyncSession
+):
+    """A re-added course whose number was curated before needs no new rule --
+    and the gate refuses to overwrite the curated one."""
+    await db_session.execute(
+        text(
+            "INSERT INTO course_requirements (course_number, exam_year, subject_rule, notes) "
+            "VALUES (:n, NULL, CAST(:r AS jsonb), :note)"
+        ),
+        {"n": COURSE[:3], "r": json.dumps(RULE), "note": "sentinel pre-existing rule"},
+    )
+    await db_session.commit()
+
+    # supplying a rule on top of the curated one is refused, loudly
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["ARTS"],
+            "subject_rule": RULE,
+        },
+    )
+    assert r.status_code == 422
+    assert "already has" in r.json()["detail"]
+
+    # without one, the curated rule satisfies D6
+    r = await client.patch(
+        _patch_url(gate),
+        headers=_auth(gate["token"]),
+        json={
+            "status": "approved",
+            "university_id": gate["university_id"],
+            "name_en": "Sentinel Course",
+            "stream_codes": ["ARTS"],
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    # and the change list tells the UI the rule exists
+    r = await client.get(
+        f"/api/admin/ingestions/{gate['run_id']}/changes",
+        headers=_auth(gate["token"]),
+    )
+    item = next(i for i in r.json()["items"] if i["course_code"] == COURSE)
+    assert item["subject_rule_exists"] is True

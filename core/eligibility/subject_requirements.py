@@ -89,3 +89,102 @@ def evaluate_subject_rule(
         return len(passing) >= rule["count"]
 
     raise ValueError(f"unknown subject_rule type: {rtype!r}")
+
+
+_RULE_TYPES = (
+    "and", "or", "stream_is", "subject_min_grade",
+    "one_of_min_grade", "count_from_list", "any_n_subjects",
+)
+
+
+def validate_subject_rule(
+    rule: object,
+    *,
+    known_subjects: set[str],
+    known_streams: set[str],
+    _path: str = "rule",
+) -> list[str]:
+    """Every way a rule tree could silently break, as human-readable errors
+    (empty list = valid). Written for the new-course gate (Phase 9 D6): a rule
+    is saved once and then decides who qualifies for the course FOREVER, so a
+    typo must die at the gate, not in production.
+
+    The check that matters most is subject NAMES against the catalog: rules
+    match the student's dropdown-picked subjects by exact string, so a rule
+    written against "Bio" (catalog: "Biology") evaluates false for every
+    student — the course simply vanishes for all of them, with no error
+    anywhere. That is the silent-omission bug in a different coat.
+    """
+    errors: list[str] = []
+    if not isinstance(rule, dict):
+        return [f"{_path}: must be an object, got {type(rule).__name__}"]
+    rtype = rule.get("type")
+    if rtype not in _RULE_TYPES:
+        return [f"{_path}: unknown type {rtype!r} — one of {', '.join(_RULE_TYPES)}"]
+
+    def _check_min_grade() -> None:
+        mg = rule.get("min_grade", "S")
+        if not isinstance(mg, str) or mg.upper() not in GRADE_RANK:
+            errors.append(f"{_path}: min_grade must be one of {'/'.join(GRADE_RANK)}, got {mg!r}")
+
+    def _check_subject_list(field: str) -> None:
+        subs = rule.get(field)
+        if not isinstance(subs, list) or not subs:
+            errors.append(f"{_path}: {field} must be a non-empty list of subject names")
+            return
+        for s in subs:
+            if s not in known_subjects:
+                errors.append(
+                    f"{_path}: unknown subject {s!r} — must match the catalog name exactly, "
+                    "or it will never match any student"
+                )
+
+    def _check_count() -> None:
+        n = rule.get("count")
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            errors.append(f"{_path}: count must be a whole number >= 1, got {n!r}")
+
+    if rtype in ("and", "or"):
+        conds = rule.get("conditions")
+        if not isinstance(conds, list) or not conds:
+            errors.append(f"{_path}: conditions must be a non-empty list")
+        else:
+            for i, c in enumerate(conds):
+                errors.extend(
+                    validate_subject_rule(
+                        c,
+                        known_subjects=known_subjects,
+                        known_streams=known_streams,
+                        _path=f"{_path}.conditions[{i}]",
+                    )
+                )
+    elif rtype == "stream_is":
+        streams = rule.get("streams")
+        if not isinstance(streams, list) or not streams:
+            errors.append(f"{_path}: streams must be a non-empty list of stream codes")
+        else:
+            for s in streams:
+                if s not in known_streams:
+                    errors.append(f"{_path}: unknown stream code {s!r}")
+    elif rtype == "subject_min_grade":
+        s = rule.get("subject")
+        if not isinstance(s, str) or not s:
+            errors.append(f"{_path}: subject is required")
+        elif s not in known_subjects:
+            errors.append(
+                f"{_path}: unknown subject {s!r} — must match the catalog name exactly, "
+                "or it will never match any student"
+            )
+        _check_min_grade()
+    elif rtype == "one_of_min_grade":
+        _check_subject_list("subjects")
+        _check_min_grade()
+    elif rtype == "count_from_list":
+        _check_subject_list("subjects")
+        _check_count()
+        _check_min_grade()
+    elif rtype == "any_n_subjects":
+        _check_count()
+        _check_min_grade()
+
+    return errors

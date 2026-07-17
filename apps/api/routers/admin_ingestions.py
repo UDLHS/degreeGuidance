@@ -65,6 +65,7 @@ from apps.worker.jobs.ingest_zscores import (
     ingest_zscores,
 )
 from core.config import settings
+from core.eligibility.subject_requirements import validate_subject_rule
 from core.ingestion.artifact_store import (
     artifact_exists,
     artifact_path,
@@ -1366,10 +1367,40 @@ async def list_changes(
         )
     ).all()
 
+    # D6: which new-course NUMBERS already have a baseline subject rule (e.g. a
+    # course re-added under a number curated before) — the gate then shows
+    # "rule exists" instead of asking for one. One query for the whole run.
+    added_numbers = {
+        r.course_code[:3]
+        for r in rows
+        if r.change_type == "course_added" and r.course_code[:3].isdigit()
+    }
+    with_rule: set[str] = set()
+    if added_numbers:
+        with_rule = {
+            r.course_number
+            for r in (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT course_number FROM course_requirements "
+                        "WHERE course_number = ANY(:nums) AND exam_year IS NULL"
+                    ),
+                    {"nums": list(added_numbers)},
+                )
+            ).all()
+        }
+
+    items: list[HandbookChangeOut] = []
+    for r in rows:
+        out = HandbookChangeOut.model_validate(r)
+        if r.change_type == "course_added":
+            out.subject_rule_exists = r.course_code[:3] in with_rule
+        items.append(out)
+
     return HandbookChangeListResponse(
         total=len(rows),
         counts={s: c for s, c in count_rows},
-        items=[HandbookChangeOut.model_validate(r) for r in rows],
+        items=items,
     )
 
 
@@ -1422,9 +1453,53 @@ async def update_change(
             merged["name_en"] = payload.name_en
         if payload.stream_codes is not None:
             merged["stream_codes"] = await _validate_stream_codes(db, payload.stream_codes)
+
+        # D6 — the subject rule, validated the moment it is supplied so a typo
+        # dies here, not in production where it would silently hide the course
+        # from every student whose subjects never string-match it.
+        number = ch.course_code[:3] if ch.course_code[:3].isdigit() else None
+        rule_exists = bool(
+            number
+            and (
+                await db.execute(
+                    text(
+                        "SELECT 1 FROM course_requirements "
+                        "WHERE course_number = :n AND exam_year IS NULL LIMIT 1"
+                    ),
+                    {"n": number},
+                )
+            ).first()
+        )
+        if payload.subject_rule is not None:
+            if rule_exists:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        f"Course number {number} already has a curated subject rule "
+                        "(see the Subject Rules page) — the gate will not overwrite "
+                        "it. Approve without a rule here."
+                    ),
+                )
+            known_subjects = {
+                r.name_en for r in (await db.execute(text("SELECT name_en FROM subjects"))).all()
+            }
+            known_streams = {
+                r.code for r in (await db.execute(text("SELECT code FROM streams"))).all()
+            }
+            errors = validate_subject_rule(
+                payload.subject_rule,
+                known_subjects=known_subjects,
+                known_streams=known_streams,
+            )
+            if errors:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Subject rule is invalid: " + "; ".join(errors[:8]),
+                )
+            merged["subject_rule"] = payload.subject_rule
         ch.after_value = merged
 
-        # D1 gate — only on approve; a reject needs no details at all.
+        # D1 + D6 gate — only on approve; a reject needs no details at all.
         if payload.status == "approved":
             missing = [
                 field
@@ -1438,6 +1513,19 @@ async def update_change(
                         f"Cannot approve {ch.course_code}: missing {', '.join(missing)}. "
                         "A new course needs a university, a name and at least one "
                         "eligible stream — without a stream no student can ever see it."
+                    ),
+                )
+            if not rule_exists and not merged.get("subject_rule"):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        f"Cannot approve {ch.course_code}: no subject rule. Streams "
+                        "decide who SEES the course; the subject rule decides who "
+                        "QUALIFIES — without one the engine serves it to every "
+                        "student in the ticked streams regardless of their "
+                        "subjects. Write the rule from the book's own wording "
+                        "shown on this card (an 'any 3 passes' course is "
+                        '{"type": "any_n_subjects", "count": 3}).'
                     ),
                 )
 
@@ -1560,6 +1648,42 @@ async def apply_changes(
                     ),
                     {"cc": ch.course_code, "sid": stream_ids[sc]},
                 )
+            # D6 — the gate-approved subject rule lands in the SAME transaction
+            # as the course and its streams: who-sees-it and who-qualifies
+            # arrive together, or not at all. An existing baseline rule for the
+            # number wins (curated data is never clobbered from here); the gate
+            # refuses a rule when one exists, so both being present means two
+            # Uni-Codes of one number in the same run — the first write took it.
+            rule = av.get("subject_rule")
+            if rule and course_number:
+                already = (
+                    await db.execute(
+                        text(
+                            "SELECT 1 FROM course_requirements "
+                            "WHERE course_number = :n AND exam_year IS NULL LIMIT 1"
+                        ),
+                        {"n": course_number},
+                    )
+                ).first()
+                if not already:
+                    await db.execute(
+                        text(
+                            "INSERT INTO course_requirements "
+                            "(course_number, exam_year, subject_rule, notes) "
+                            "VALUES (:n, NULL, CAST(:rule AS jsonb), :notes)"
+                        ),
+                        {
+                            "n": course_number,
+                            "rule": json.dumps(rule),
+                            "notes": f"authored at the new-course gate (run {run_id})",
+                        },
+                    )
+                    await log_admin_action(
+                        db, admin=admin, action_type="course_requirement.create",
+                        target_table="course_requirements", target_id=course_number,
+                        before=None, after={"subject_rule": rule}, request=request,
+                        notes=f"handbook-sync addition (run {run_id})",
+                    )
             ch.status, ch.resolved_by, ch.resolved_at = "applied", f"admin:{admin.user_id}", now
             await log_admin_action(
                 db, admin=admin, action_type="course.create", target_table="courses",

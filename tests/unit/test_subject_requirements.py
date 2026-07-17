@@ -188,3 +188,72 @@ def test_stream_is_unlisted_stream_fails_both_branches():
     # (course_stream_eligibility wouldn't route this student here anyway).
     student = _s(("Engineering Technology", "S"), ("Science for Technology", "S"), ("Mathematics", "S"))
     assert evaluate_subject_rule(TOURISM_HOSPITALITY_RULE, student, stream_code="ENGINEERING_TECH") is False
+
+
+# -- validate_subject_rule (Phase 9 D6: a typo must die at the gate) ----------
+
+from core.eligibility.subject_requirements import validate_subject_rule  # noqa: E402
+
+_SUBJECTS = {"Biology", "Chemistry", "Physics", "Combined Mathematics", "Economics"}
+_STREAMS = {"ARTS", "COMMERCE", "BIO_SCIENCE", "PHYSICAL_SCIENCE"}
+
+
+def _v(rule):
+    return validate_subject_rule(rule, known_subjects=_SUBJECTS, known_streams=_STREAMS)
+
+
+def test_validator_accepts_a_real_handbook_rule():
+    assert _v(ENGINEERING_RULE) == []
+
+
+def test_validator_accepts_any_n_subjects():
+    assert _v({"type": "any_n_subjects", "count": 3, "min_grade": "S"}) == []
+
+
+def test_validator_names_a_misspelled_subject():
+    errs = _v({"type": "count_from_list", "subjects": ["Bio", "Chemistry"], "count": 2})
+    assert any("Bio" in e for e in errs)
+
+
+def test_validator_rejects_unknown_type_and_non_dict():
+    assert _v({"type": "what_even"})
+    assert _v(["not", "a", "rule"])
+    assert _v(None)
+
+
+def test_validator_rejects_empty_combinators_and_bad_counts():
+    assert _v({"type": "and", "conditions": []})
+    assert _v({"type": "count_from_list", "subjects": ["Biology"], "count": 0})
+    assert _v({"type": "any_n_subjects", "count": True})
+
+
+def test_validator_rejects_bad_grade_and_unknown_stream():
+    assert _v({"type": "any_n_subjects", "count": 3, "min_grade": "Z"})
+    assert _v({"type": "stream_is", "streams": ["ICT"]})
+
+
+def test_validator_walks_nested_trees_with_paths():
+    errs = _v({
+        "type": "or",
+        "conditions": [
+            {"type": "subject_min_grade", "subject": "Economics", "min_grade": "B"},
+            {"type": "subject_min_grade", "subject": "Econ", "min_grade": "B"},
+        ],
+    })
+    assert len(errs) == 1
+    assert "conditions[1]" in errs[0] and "Econ" in errs[0]
+
+
+def test_every_rule_the_validator_accepts_actually_evaluates():
+    """The validator and the evaluator must agree on the grammar: a rule that
+    passes validation can never blow up at serve time."""
+    ok = {
+        "type": "and",
+        "conditions": [
+            {"type": "one_of_min_grade", "subjects": ["Biology", "Chemistry"], "min_grade": "C"},
+            {"type": "stream_is", "streams": ["BIO_SCIENCE"]},
+            {"type": "any_n_subjects", "count": 3},
+        ],
+    }
+    assert _v(ok) == []
+    evaluate_subject_rule(ok, _s(("Biology", "A"), ("Chemistry", "B"), ("Physics", "S")), "BIO_SCIENCE")

@@ -98,6 +98,10 @@ class HandbookChangeOut(BaseModel):
     resolved_by: str | None = None
     resolved_at: datetime | None = None
     created_at: datetime
+    #: course_added only (Phase 9 D6): the course NUMBER already has a baseline
+    #: subject rule in course_requirements (e.g. a re-added course), so the
+    #: gate does not ask for one. Computed at read time, never stored.
+    subject_rule_exists: bool | None = None
 
 
 class HandbookChangeListResponse(BaseModel):
@@ -114,7 +118,13 @@ class HandbookChangeUpdate(BaseModel):
     Phase 9 D1: approving a course_added REQUIRES stream_codes. The engine only
     serves a course that has a course_stream_eligibility row, so approving
     without one produced a course that was invisible to every student, silently.
-    Approved must mean visible."""
+    Approved must mean visible.
+
+    Phase 9 D6: approving a course_added also REQUIRES a subject rule — either
+    supplied here (validated, written by apply in the same transaction as the
+    course) or already existing for the course number. Streams decide who SEES
+    the course; the subject rule decides who QUALIFIES. 131's restriction once
+    lived only in a free-text note that nothing read — never again."""
 
     status: Literal["approved", "rejected"]
     notes: str | None = None
@@ -123,6 +133,14 @@ class HandbookChangeUpdate(BaseModel):
     stream_codes: list[str] | None = Field(
         default=None,
         description="required to APPROVE a course_added — a course with no stream is invisible to every student",
+    )
+    subject_rule: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "required to APPROVE a course_added unless the course number already "
+            "has a baseline rule — the JSON condition tree the engine filters "
+            "students on (core/eligibility/subject_requirements.py grammar)"
+        ),
     )
 
 

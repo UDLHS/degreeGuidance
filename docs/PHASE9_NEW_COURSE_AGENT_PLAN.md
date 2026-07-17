@@ -56,7 +56,7 @@ exists to kill.
 | **D3** | **Factsheet = book first, then web enrichment** (book: streams/requirements/medium; web: careers/industry). |
 | **D4** | **Course goes live on approve; the factsheet lands as a draft** and is indexed into the advisor only after separate approval. |
 | **D5** | *(2026-07-16)* **ICT is a subject, not a stream.** The book names **six** streams (2024 p.28). The `streams` table's 7th row (ICT) is a modelling artifact. Never emit it as a stream; never build rules around it. |
-| **D6** | *(2026-07-16)* **A new course needs subject rules too, not just streams.** Streams decide who *sees* it; subject rules decide who *qualifies*. Both belong at the gate. |
+| **D6** | *(2026-07-16)* **A new course needs subject rules too, not just streams.** Streams decide who *sees* it; subject rules decide who *qualifies*. Both belong at the gate. **BUILT 2026-07-16:** approve refuses without a subject rule (422) unless the course number already has a curated baseline row (which the gate refuses to overwrite). The rule is authored at the gate from the book's verbatim wording (never pre-filled with a guess — one-click templates only), validated structurally AND every subject name against the catalog (a misspelled subject would string-match no student ever — the silent-omission bug in a different coat), and written to `course_requirements` by apply in the same transaction as the course + streams. A course with no real constraint gets an explicit `{"type": "any_n_subjects", "count": 3}` — a visible decision, not a missing row. Enforced at approve only; promote does NOT block on it (no-rule courses are ungated by design for the legacy catalog, migration 24). `validate_subject_rule` in core/eligibility/subject_requirements.py. |
 
 ---
 
