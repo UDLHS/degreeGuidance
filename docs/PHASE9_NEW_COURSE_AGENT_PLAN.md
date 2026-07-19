@@ -194,12 +194,31 @@ or whether factsheets cover it.
   rows** — everything the 2024 book prints. 036 correctly held for a human.
   **Run it on PROD alongside the 131 streams fix.**
 
+**9.6b DONE (2026-07-18) — the gate reads, the admin only approves:**
+
+- **Deterministic subject-rule suggester** (`core/ingestion/rule_suggest.py`):
+  the book repeats a handful of fixed requirement-sentence shapes; each is an
+  ANCHORED pattern that must consume the ENTIRE sentence or yield None — no
+  partial parses, no guesses. Multi-route texts, "combinations", stream-
+  conditional rules → always None (human writes them). Measured on the 2024
+  book: 54/125 blocks parse; **52/52 valid suggestions agree semantically with
+  the hand-curated rules; zero disagreements**; unvalidatable subject names
+  (slash-composites, 094/095) are dropped before display. The suggestion
+  pre-fills the gate's editable rule box marked "read from the book — verify";
+  D6 still validates at approve.
+- **Multi-university grouping at the gate**: course_added cards group by
+  course NUMBER — one card per course of study, member rows per Uni-Code
+  (own university + name + per-code aptitude), SHARED streams + subject rule
+  (the book documents the course once), one "Approve all N". Per-member
+  reject stays. No university can be silently forgotten.
+- **Rename detection** (`handbook_diff.py`): an added code whose BOOK name
+  ≈ a removed course's catalog name (normalized similarity ≥ 0.8) gets a
+  `possible_rename_of` note, and the removed card a `possible_rename_to`
+  back-reference. INFORMATIONAL only — both cards explain what approving
+  means; nothing automatic.
+
 **Still open in 9.6:**
 - **Student UI rendering** of mediums/duration — student-side branch decision.
-- **One course = many universities** at the gate — 142A/142B arrive as
-  separate cards; nothing groups them for one review.
-- **Renames** — a renamed course reads as *removed + added*, so we would
-  deactivate a live course and create a duplicate beside it.
 - **Removed courses** — already handled by the diff's whole-book safeguard;
   keep it in the agent's story.
 

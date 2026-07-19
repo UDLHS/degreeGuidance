@@ -130,6 +130,50 @@ async def compute_handbook_diff(
             )
         )
 
+    # --- Possible renames (9.6b): an added code whose BOOK name closely
+    # matches a removed course's catalog name is probably the same course
+    # under a new name/code. Left undetected, the admin would deactivate a
+    # live course and create its duplicate beside it — losing the link to its
+    # factsheet, subject rule and history. INFORMATIONAL ONLY: both cards get
+    # a note naming the other side; the admin decides. Never automatic.
+    removed_records = [c for c in changes if c.change_type == "course_removed"]
+    added_records = [c for c in changes if c.change_type == "course_added"]
+    if removed_records and added_records:
+        from difflib import SequenceMatcher
+
+        from core.ingestion.column_mapper import normalize_label
+
+        for added in added_records:
+            added_name = (added.after_value or {}).get("name_en")
+            if not added_name:
+                continue
+            best: tuple[float, ChangeRecord] | None = None
+            for removed in removed_records:
+                removed_name = (removed.before_value or {}).get("name_en") or ""
+                ratio = SequenceMatcher(
+                    None, normalize_label(added_name), normalize_label(removed_name)
+                ).ratio()
+                if ratio >= 0.8 and (best is None or ratio > best[0]):
+                    best = (ratio, removed)
+            if best is None:
+                continue
+            ratio, removed = best
+            added.after_value = dict(added.after_value or {})
+            added.after_value["possible_rename_of"] = {
+                "course_code": removed.course_code,
+                "name_en": (removed.before_value or {}).get("name_en"),
+                "similarity": round(ratio, 2),
+            }
+            removed.after_value = dict(removed.after_value or {})
+            hints = removed.after_value.setdefault("possible_rename_to", [])
+            hints.append(
+                {
+                    "course_code": added.course_code,
+                    "name_en": added_name,
+                    "similarity": round(ratio, 2),
+                }
+            )
+
     # --- Cutoff changes: codes present in both (and active) ---
     prior_year = (
         await db.execute(

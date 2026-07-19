@@ -127,12 +127,18 @@ export function ChangeSetReview({ runId }: { runId: string }) {
             const saved = c.after_value?.stream_codes as string[] | undefined;
             const suggested = c.after_value?.suggested_stream_codes as string[] | undefined;
             const savedRule = c.after_value?.subject_rule as Record<string, unknown> | undefined;
+            // 9.6b — a rule READ from the book's own sentence (only when the
+            // whole sentence parsed; validated against catalog subject names).
+            // Pre-filled for review, marked as book-derived in the UI.
+            const suggestedRule = c.after_value?.suggested_subject_rule as
+              | Record<string, unknown>
+              | undefined;
+            const rule = savedRule ?? suggestedRule;
             next[c.change_id] = {
               university_id: String((c.after_value?.university_id as number) ?? ""),
               name_en: String((c.after_value?.name_en as string) ?? ""),
               stream_codes: (saved ?? suggested ?? []).filter((s) => s !== NOT_A_STREAM),
-              // never pre-filled with a guess — only with what was already saved
-              subject_rule: savedRule ? JSON.stringify(savedRule, null, 2) : "",
+              subject_rule: rule ? JSON.stringify(rule, null, 2) : "",
             };
           }
         }
@@ -237,6 +243,57 @@ export function ChangeSetReview({ runId }: { runId: string }) {
     await load();
   }
 
+  // 9.6b — one course of study across several universities is ONE review:
+  // shared streams + subject rule (the book documents the course once), each
+  // member keeping its own university and name. All members approve together
+  // so no university's Uni-Code can be silently forgotten (the promote gate
+  // would still catch it, but the admin shouldn't meet that wall at all).
+  async function approveGroup(members: Change[]) {
+    setMsg(null);
+    const lead = members[0];
+    const shared = forms[lead.change_id];
+    let rule: Record<string, unknown> | null = null;
+    if (!lead.subject_rule_exists && shared?.subject_rule?.trim()) {
+      rule = parseRule(shared.subject_rule);
+      if (!rule) {
+        setMsg({
+          ok: false,
+          text: `${lead.course_code.slice(0, 3)}: the subject rule is not valid JSON — fix it before approving.`,
+        });
+        return;
+      }
+    }
+    for (const m of members) {
+      if (m.status === "applied" || m.status === "rejected") continue;
+      const f = forms[m.change_id];
+      const body: Record<string, unknown> = {
+        status: "approved",
+        university_id: f?.university_id ? Number(f.university_id) : null,
+        name_en: f?.name_en?.trim() || null,
+        stream_codes: shared?.stream_codes ?? [],
+      };
+      if (rule) body.subject_rule = rule;
+      setBusyId(m.change_id);
+      const res = await fetch(`/api/bff/admin/ingestions/${runId}/changes/${m.change_id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setBusyId(null);
+        const e = await res.json().catch(() => null);
+        setMsg({
+          ok: false,
+          text: `${m.course_code}: ${typeof e?.detail === "string" ? e.detail : `update failed (${res.status})`}`,
+        });
+        await load();
+        return;
+      }
+    }
+    setBusyId(null);
+    await load();
+  }
+
   async function apply() {
     if (
       !confirm(
@@ -306,6 +363,23 @@ export function ChangeSetReview({ runId }: { runId: string }) {
         {GROUPS.map(({ type, label, icon: Icon, accent }) => {
           const items = data.items.filter((c) => c.change_type === type);
           if (items.length === 0) return null;
+
+          // 9.6b — one course of study across several universities is printed
+          // once in the book, so it is reviewed once here: members grouped by
+          // course number share streams + subject rule, keep their own
+          // university, and approve together.
+          const addedGroups: [string, Change[]][] = [];
+          if (type === "course_added") {
+            const byNum = new Map<string, Change[]>();
+            for (const c of items) {
+              const key = /^\d{3}/.test(c.course_code) ? c.course_code.slice(0, 3) : c.course_code;
+              const arr = byNum.get(key);
+              if (arr) arr.push(c);
+              else byNum.set(key, [c]);
+            }
+            byNum.forEach((members, key) => addedGroups.push([key, members]));
+          }
+
           return (
             <div key={type}>
               <div className={cn("mb-2 flex items-center gap-2 text-sm font-semibold", accent)}>
@@ -313,280 +387,416 @@ export function ChangeSetReview({ runId }: { runId: string }) {
                 <span className="text-muted-foreground">({items.length})</span>
               </div>
               <div className="space-y-2">
-                {items.map((c) => {
-                  const isAdded = c.change_type === "course_added";
-                  const isCutoff = c.change_type === "cutoff_changed";
-                  const actionable = c.status === "pending" || c.status === "approved" || c.status === "rejected";
-                  const form =
-                    forms[c.change_id] ??
-                    { university_id: "", name_en: "", stream_codes: [], subject_rule: "" };
-                  // Phase 9 D1: streams are required to approve — a course with
-                  // none is invisible to every student, silently. D6: so is a
-                  // subject rule (unless the number already has a curated one) —
-                  // streams decide who SEES it, the rule decides who QUALIFIES.
-                  const needsRule = isAdded && !c.subject_rule_exists;
-                  const ruleOk = !needsRule || parseRule(form.subject_rule) !== null;
-                  const addReady =
-                    !isAdded ||
-                    (Boolean(form.university_id && form.name_en.trim() && form.stream_codes.length > 0) &&
-                      ruleOk);
-                  const bookPage = c.after_value?.book_page as number | undefined;
-                  const bookUni = c.after_value?.book_university as string | undefined;
-                  // Phase 9.2b — what Section 2.2 of the book says about it
-                  const bookReq = c.after_value?.book_requirements_text as string | undefined;
-                  const bookIntake = c.after_value?.book_intake as number | undefined;
-                  const detailsPage = c.after_value?.book_details_page as number | undefined;
-                  const mayBeIncomplete = c.after_value?.streams_may_be_incomplete === true;
-                  // Phase 9.6 — the block's remaining printed facts, applied
-                  // with the course when it is created
-                  const bookDuration = c.after_value?.book_duration_years as number | undefined;
-                  const bookMediumText = c.after_value?.book_medium_text as string | undefined;
-                  const mediumNeedsReview = c.after_value?.book_medium_needs_review === true;
-                  const bookAptitude = c.after_value?.book_requires_aptitude as
-                    | boolean
-                    | undefined;
-                  const details = (c.after_value?.details as CutoffDelta[] | undefined) ?? [];
-                  return (
-                    <div key={c.change_id} className="rounded-lg border p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-semibold">{c.course_code}</span>
-                            <Badge status={c.status} />
-                          </div>
-                          <p className="mt-0.5 text-sm text-muted-foreground">{c.summary}</p>
-
-                          {isCutoff && details.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setOpen((o) => ({ ...o, [c.change_id]: !o[c.change_id] }))}
-                              className="mt-1 inline-flex items-center gap-1 text-xs text-primary"
-                            >
-                              <ChevronDown
-                                className={cn("h-3 w-3 transition-transform", open[c.change_id] && "rotate-180")}
-                                aria-hidden
-                              />
-                              {open[c.change_id] ? "Hide" : "Show"} {details.length} district changes
-                            </button>
-                          )}
-                          {isCutoff && open[c.change_id] && (
-                            <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-0.5 text-xs sm:grid-cols-3">
-                              {details.map((d) => (
-                                <div key={d.district} className="flex justify-between gap-2">
-                                  <span className="text-muted-foreground">{d.district}</span>
-                                  <span className="font-mono">
-                                    {d.old ?? "—"} → {d.new ?? "—"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {isAdded && c.status !== "applied" && (
-                            <div className="mt-2 space-y-2">
-                              {(bookPage || bookUni) && (
-                                <p className="text-xs text-muted-foreground">
-                                  Pre-filled from the book
-                                  {bookPage ? ` (p.${bookPage})` : ""}
-                                  {bookUni && !form.university_id
-                                    ? ` — the book says “${bookUni}”; pick the matching university`
-                                    : ""}
-                                  . Check it, change anything that&apos;s wrong, then approve.
-                                </p>
-                              )}
+                {type === "course_added"
+                  ? addedGroups.map(([num, members]) => {
+                      const lead = members[0];
+                      const leadForm =
+                        forms[lead.change_id] ??
+                        { university_id: "", name_en: "", stream_codes: [], subject_rule: "" };
+                      const allApplied = members.every((m) => m.status === "applied");
+                      const active = members.filter(
+                        (m) => m.status !== "applied" && m.status !== "rejected",
+                      );
+                      // Phase 9 D1+D6: streams and a subject rule are required
+                      // to approve; every active member needs its university+name
+                      const needsRule = !lead.subject_rule_exists;
+                      const ruleOk = !needsRule || parseRule(leadForm.subject_rule) !== null;
+                      const groupReady =
+                        leadForm.stream_codes.length > 0 &&
+                        ruleOk &&
+                        active.length > 0 &&
+                        active.every((m) => {
+                          const f = forms[m.change_id];
+                          return Boolean(f?.university_id && f?.name_en.trim());
+                        });
+                      const av = lead.after_value ?? {};
+                      const bookReq = av.book_requirements_text as string | undefined;
+                      const bookIntake = av.book_intake as number | undefined;
+                      const detailsPage = av.book_details_page as number | undefined;
+                      const mayBeIncomplete = av.streams_may_be_incomplete === true;
+                      const bookDuration = av.book_duration_years as number | undefined;
+                      const bookMediumText = av.book_medium_text as string | undefined;
+                      const mediumNeedsReview = av.book_medium_needs_review === true;
+                      const busy = members.some((m) => busyId === m.change_id);
+                      return (
+                        <div key={num} className="rounded-lg border p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <Select
-                                  value={form.university_id}
-                                  onValueChange={(v) =>
-                                    setForms((p) => ({ ...p, [c.change_id]: { ...form, university_id: v } }))
-                                  }
-                                >
-                                  <SelectTrigger className="h-8 w-[150px] text-xs">
-                                    <SelectValue placeholder="University…" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {universities.map((u) => (
-                                      <SelectItem key={u.university_id} value={String(u.university_id)}>
-                                        {u.university_code ?? `#${u.university_id}`}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <Input
-                                  value={form.name_en}
-                                  onChange={(e) =>
-                                    setForms((p) => ({ ...p, [c.change_id]: { ...form, name_en: e.target.value } }))
-                                  }
-                                  placeholder="Course name"
-                                  className="h-8 w-[240px] text-xs"
-                                />
+                                <span className="font-mono text-xs font-semibold">{num}</span>
+                                <span className="text-sm font-medium">
+                                  {leadForm.name_en || "New course of study"}
+                                </span>
+                                {members.length > 1 ? (
+                                  <span className="rounded-md bg-muted px-2 py-0.5 text-xs">
+                                    one course of study · {members.length} universities — reviewed
+                                    together
+                                  </span>
+                                ) : null}
                               </div>
 
-                              <div
-                                className={cn(
-                                  "space-y-1.5 rounded-md border p-3",
-                                  form.stream_codes.length === 0 && "border-amber-300 bg-amber-50",
-                                )}
-                              >
-                                <div className="text-xs font-medium">
-                                  Eligible streams (required)
-                                  {detailsPage ? (
-                                    <span className="ml-1 font-normal text-muted-foreground">
-                                      — read from the book, p.{detailsPage}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  Students only see this course from a ticked stream. No ticks = invisible
-                                  to everyone, so it can&apos;t be approved without one.
-                                </p>
-                                {mayBeIncomplete && (
-                                  <p className="rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
-                                    ⚠ <strong>These may not be all of them.</strong> The book also lets
-                                    students in through a subject list without naming a stream, so what
-                                    we could read is a <em>minimum</em>. Read the book&apos;s wording
-                                    below and add any stream that qualifies — a missing tick means those
-                                    students never see this course.
-                                  </p>
-                                )}
-                                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-1 sm:grid-cols-3">
-                                  {streams.map((s) => (
-                                    <label key={s.code} className="flex items-center gap-2 text-xs">
-                                      <input
-                                        type="checkbox"
-                                        checked={form.stream_codes.includes(s.code)}
-                                        onChange={() => toggleStream(c.change_id, s.code)}
-                                      />
-                                      {s.name_en}
-                                    </label>
-                                  ))}
-                                </div>
+                              {/* one row per Uni-Code: its own university + name */}
+                              <div className="mt-2 space-y-1.5">
+                                {members.map((m) => {
+                                  const f =
+                                    forms[m.change_id] ??
+                                    { university_id: "", name_en: "", stream_codes: [], subject_rule: "" };
+                                  const rename = m.after_value?.possible_rename_of as
+                                    | { course_code: string; name_en?: string; similarity?: number }
+                                    | undefined;
+                                  const mAptitude = m.after_value?.book_requires_aptitude === true;
+                                  const mBookUni = m.after_value?.book_university as string | undefined;
+                                  const editable = m.status !== "applied" && m.status !== "rejected";
+                                  return (
+                                    <div key={m.change_id} className="rounded-md border px-2 py-1.5">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-mono text-xs font-semibold">{m.course_code}</span>
+                                        <Badge status={m.status} />
+                                        {editable ? (
+                                          <>
+                                            <Select
+                                              value={f.university_id}
+                                              onValueChange={(v) =>
+                                                setForms((p) => ({
+                                                  ...p,
+                                                  [m.change_id]: { ...f, university_id: v },
+                                                }))
+                                              }
+                                            >
+                                              <SelectTrigger className="h-8 w-[140px] text-xs">
+                                                <SelectValue placeholder="University…" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {universities.map((u) => (
+                                                  <SelectItem
+                                                    key={u.university_id}
+                                                    value={String(u.university_id)}
+                                                  >
+                                                    {u.university_code ?? `#${u.university_id}`}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                            <Input
+                                              value={f.name_en}
+                                              onChange={(e) =>
+                                                setForms((p) => ({
+                                                  ...p,
+                                                  [m.change_id]: { ...f, name_en: e.target.value },
+                                                }))
+                                              }
+                                              placeholder="Course name"
+                                              className="h-8 w-[220px] text-xs"
+                                            />
+                                          </>
+                                        ) : null}
+                                        {mAptitude ? (
+                                          <span className="text-xs text-muted-foreground">
+                                            aptitude test (book)
+                                          </span>
+                                        ) : null}
+                                        {editable && m.status !== "rejected" ? (
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="ml-auto h-7"
+                                            disabled={busy}
+                                            onClick={() => review(m, "rejected")}
+                                          >
+                                            <X className="mr-1 h-3 w-3" aria-hidden /> Reject
+                                          </Button>
+                                        ) : null}
+                                      </div>
+                                      {mBookUni && !f.university_id && editable ? (
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                          the book says “{mBookUni}” — pick the matching university
+                                        </p>
+                                      ) : null}
+                                      {rename ? (
+                                        <p className="mt-1 rounded-md border border-amber-300 bg-amber-100 px-2 py-1 text-xs text-amber-900">
+                                          ⚠ Possibly a <strong>rename</strong> of {rename.course_code}
+                                          {rename.name_en ? ` “${rename.name_en}”` : ""}
+                                          {typeof rename.similarity === "number"
+                                            ? ` (${Math.round(rename.similarity * 100)}% name match)`
+                                            : ""}{" "}
+                                          — see the removed-courses list below. If it is, approving
+                                          here and letting the old code deactivate is correct; its
+                                          history stays under the old code.
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
                               </div>
 
-                              {bookReq && (
-                                <details className="rounded-md border p-3" open={mayBeIncomplete || needsRule}>
-                                  <summary className="cursor-pointer text-xs font-medium">
-                                    What the book says about this course
-                                    {detailsPage ? ` (p.${detailsPage})` : ""}
-                                    {bookIntake ? ` · proposed intake ${bookIntake}` : ""}
-                                    {bookDuration ? ` · ${bookDuration} years` : ""}
-                                    {bookMediumText && !mediumNeedsReview
-                                      ? ` · medium: ${bookMediumText}`
-                                      : ""}
-                                    {bookAptitude ? " · practical/aptitude test required" : ""}
-                                  </summary>
-                                  {mediumNeedsReview ? (
-                                    <p className="mt-2 rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
-                                      ⚠ <strong>The medium differs per institution</strong> — the
-                                      book prints: &ldquo;{bookMediumText}&rdquo;. No medium is set
-                                      automatically; assign it per Uni-Code after applying.
+                              {!allApplied ? (
+                                <div className="mt-2 space-y-2">
+                                  <div
+                                    className={cn(
+                                      "space-y-1.5 rounded-md border p-3",
+                                      leadForm.stream_codes.length === 0 && "border-amber-300 bg-amber-50",
+                                    )}
+                                  >
+                                    <div className="text-xs font-medium">
+                                      Eligible streams (required
+                                      {members.length > 1 ? ", shared by all universities" : ""})
+                                      {detailsPage ? (
+                                        <span className="ml-1 font-normal text-muted-foreground">
+                                          — read from the book, p.{detailsPage}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Students only see this course from a ticked stream. No ticks =
+                                      invisible to everyone, so it can&apos;t be approved without one.
                                     </p>
-                                  ) : null}
-                                  {/* the book's own words, verbatim — the admin
-                                      confirms against this, and authors the
-                                      subject rule below from it (D6) */}
-                                  <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-                                    {bookReq}
-                                  </p>
-                                </details>
-                              )}
+                                    {mayBeIncomplete && (
+                                      <p className="rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+                                        ⚠ <strong>These may not be all of them.</strong> The book also
+                                        lets students in through a subject list without naming a
+                                        stream, so what we could read is a <em>minimum</em>. Read the
+                                        book&apos;s wording below and add any stream that qualifies — a
+                                        missing tick means those students never see this course.
+                                      </p>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 pt-1 sm:grid-cols-3">
+                                      {streams.map((s) => (
+                                        <label key={s.code} className="flex items-center gap-2 text-xs">
+                                          <input
+                                            type="checkbox"
+                                            checked={leadForm.stream_codes.includes(s.code)}
+                                            onChange={() => toggleStream(lead.change_id, s.code)}
+                                          />
+                                          {s.name_en}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
 
-                              {/* D6 — the subject rule slot. Never pre-filled with
-                                  a guess: the admin writes it from the book's own
-                                  wording above, and the server validates every
-                                  subject name against the catalog before it can
-                                  ever gate a student. */}
-                              {!needsRule ? (
-                                <p className="rounded-md border border-green-300 bg-green-50 px-2 py-1.5 text-xs text-green-900">
-                                  ✓ This course number already has a curated subject rule (see{" "}
-                                  <span className="font-medium">Subject Rules</span>) — it applies as-is.
-                                </p>
-                              ) : (
-                                <div
-                                  className={cn(
-                                    "space-y-1.5 rounded-md border p-3",
-                                    !form.subject_rule.trim() && "border-amber-300 bg-amber-50",
+                                  {bookReq && (
+                                    <details
+                                      className="rounded-md border p-3"
+                                      open={mayBeIncomplete || needsRule}
+                                    >
+                                      <summary className="cursor-pointer text-xs font-medium">
+                                        What the book says about this course
+                                        {detailsPage ? ` (p.${detailsPage})` : ""}
+                                        {bookIntake ? ` · proposed intake ${bookIntake}` : ""}
+                                        {bookDuration ? ` · ${bookDuration} years` : ""}
+                                        {bookMediumText && !mediumNeedsReview
+                                          ? ` · medium: ${bookMediumText}`
+                                          : ""}
+                                      </summary>
+                                      {mediumNeedsReview ? (
+                                        <p className="mt-2 rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+                                          ⚠ <strong>The medium differs per institution</strong> — the
+                                          book prints: &ldquo;{bookMediumText}&rdquo;. No medium is set
+                                          automatically; assign it per Uni-Code after applying.
+                                        </p>
+                                      ) : null}
+                                      {/* the book's own words, verbatim — the admin
+                                          confirms against this, and reviews the
+                                          subject rule below against it (D6) */}
+                                      <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                                        {bookReq}
+                                      </p>
+                                    </details>
                                   )}
-                                >
-                                  <div className="text-xs font-medium">Subject rule (required)</div>
-                                  <p className="text-xs text-muted-foreground">
-                                    Streams decide who <em>sees</em> this course; this rule decides who{" "}
-                                    <em>qualifies</em>. Write it from the book&apos;s wording above —
-                                    the engine evaluates it on every student&apos;s three subjects.
-                                    Subject names must match the catalog exactly (the server checks).
-                                  </p>
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {RULE_TEMPLATES.map((t) => (
-                                      <button
-                                        key={t.label}
-                                        type="button"
-                                        className="rounded-md border px-2 py-0.5 text-[11px] hover:bg-accent"
-                                        onClick={() =>
+
+                                  {/* D6 — the subject rule slot, shared by every
+                                      university offering this course of study. */}
+                                  {!needsRule ? (
+                                    <p className="rounded-md border border-green-300 bg-green-50 px-2 py-1.5 text-xs text-green-900">
+                                      ✓ This course number already has a curated subject rule (see{" "}
+                                      <span className="font-medium">Subject Rules</span>) — it applies
+                                      as-is.
+                                    </p>
+                                  ) : (
+                                    <div
+                                      className={cn(
+                                        "space-y-1.5 rounded-md border p-3",
+                                        !leadForm.subject_rule.trim() && "border-amber-300 bg-amber-50",
+                                      )}
+                                    >
+                                      <div className="text-xs font-medium">
+                                        Subject rule (required
+                                        {members.length > 1 ? ", shared by all universities" : ""})
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">
+                                        Streams decide who <em>sees</em> this course; this rule decides
+                                        who <em>qualifies</em>. Write it from the book&apos;s wording
+                                        above — the engine evaluates it on every student&apos;s three
+                                        subjects. Subject names must match the catalog exactly (the
+                                        server checks).
+                                      </p>
+                                      {av.suggested_subject_rule ? (
+                                        <p className="rounded-md border border-sky-300 bg-sky-50 px-2 py-1.5 text-xs text-sky-900 dark:bg-sky-950/20 dark:text-sky-200">
+                                          ✓ Pre-filled by reading the book&apos;s own sentence above —
+                                          check it says the same thing, edit if not, then approve.
+                                        </p>
+                                      ) : null}
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {RULE_TEMPLATES.map((t) => (
+                                          <button
+                                            key={t.label}
+                                            type="button"
+                                            className="rounded-md border px-2 py-0.5 text-[11px] hover:bg-accent"
+                                            onClick={() =>
+                                              setForms((p) => ({
+                                                ...p,
+                                                [lead.change_id]: { ...leadForm, subject_rule: t.json },
+                                              }))
+                                            }
+                                          >
+                                            {t.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                      <textarea
+                                        value={leadForm.subject_rule}
+                                        onChange={(e) =>
                                           setForms((p) => ({
                                             ...p,
-                                            [c.change_id]: { ...form, subject_rule: t.json },
+                                            [lead.change_id]: {
+                                              ...leadForm,
+                                              subject_rule: e.target.value,
+                                            },
                                           }))
                                         }
-                                      >
-                                        {t.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                  <textarea
-                                    value={form.subject_rule}
-                                    onChange={(e) =>
-                                      setForms((p) => ({
-                                        ...p,
-                                        [c.change_id]: { ...form, subject_rule: e.target.value },
-                                      }))
-                                    }
-                                    rows={5}
-                                    spellCheck={false}
-                                    placeholder='e.g. {"type": "count_from_list", "subjects": ["Biology", "Chemistry", "Physics"], "count": 3, "min_grade": "S"}'
-                                    className="w-full rounded-md border bg-background p-2 font-mono text-[11px] leading-relaxed"
+                                        rows={5}
+                                        spellCheck={false}
+                                        placeholder='e.g. {"type": "count_from_list", "subjects": ["Biology", "Chemistry", "Physics"], "count": 3, "min_grade": "S"}'
+                                        className="w-full rounded-md border bg-background p-2 font-mono text-[11px] leading-relaxed"
+                                      />
+                                      {leadForm.subject_rule.trim() && !ruleOk ? (
+                                        <p className="text-xs text-destructive">Not valid JSON yet.</p>
+                                      ) : null}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            {!allApplied && active.length > 0 ? (
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy || !groupReady}
+                                  onClick={() => approveGroup(members)}
+                                  title={
+                                    !groupReady
+                                      ? "Every university needs a name picked, plus shared streams and a subject rule"
+                                      : undefined
+                                  }
+                                >
+                                  <Check className="mr-1 h-3.5 w-3.5" aria-hidden />
+                                  {members.length > 1
+                                    ? `Approve all ${members.length}`
+                                    : "Approve"}
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })
+                  : items.map((c) => {
+                      const isCutoff = c.change_type === "cutoff_changed";
+                      const actionable =
+                        c.status === "pending" || c.status === "approved" || c.status === "rejected";
+                      const details = (c.after_value?.details as CutoffDelta[] | undefined) ?? [];
+                      const renameTo = c.after_value?.possible_rename_to as
+                        | { course_code: string; name_en?: string; similarity?: number }[]
+                        | undefined;
+                      return (
+                        <div key={c.change_id} className="rounded-lg border p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-semibold">{c.course_code}</span>
+                                <Badge status={c.status} />
+                              </div>
+                              <p className="mt-0.5 text-sm text-muted-foreground">{c.summary}</p>
+
+                              {renameTo && renameTo.length > 0 ? (
+                                <p className="mt-1 rounded-md border border-amber-300 bg-amber-100 px-2 py-1.5 text-xs text-amber-900">
+                                  ⚠ Possibly <strong>renamed</strong> to{" "}
+                                  {renameTo
+                                    .map(
+                                      (r) =>
+                                        `${r.course_code}${r.name_en ? ` “${r.name_en}”` : ""}${
+                                          typeof r.similarity === "number"
+                                            ? ` (${Math.round(r.similarity * 100)}%)`
+                                            : ""
+                                        }`,
+                                    )
+                                    .join(", ")}{" "}
+                                  in the new-courses list above. If so, approve both sides: the new
+                                  code takes over, this one deactivates but keeps its history.
+                                </p>
+                              ) : null}
+
+                              {isCutoff && details.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOpen((o) => ({ ...o, [c.change_id]: !o[c.change_id] }))
+                                  }
+                                  className="mt-1 inline-flex items-center gap-1 text-xs text-primary"
+                                >
+                                  <ChevronDown
+                                    className={cn(
+                                      "h-3 w-3 transition-transform",
+                                      open[c.change_id] && "rotate-180",
+                                    )}
+                                    aria-hidden
                                   />
-                                  {form.subject_rule.trim() && !ruleOk ? (
-                                    <p className="text-xs text-destructive">Not valid JSON yet.</p>
-                                  ) : null}
+                                  {open[c.change_id] ? "Hide" : "Show"} {details.length} district changes
+                                </button>
+                              )}
+                              {isCutoff && open[c.change_id] && (
+                                <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-0.5 text-xs sm:grid-cols-3">
+                                  {details.map((d) => (
+                                    <div key={d.district} className="flex justify-between gap-2">
+                                      <span className="text-muted-foreground">{d.district}</span>
+                                      <span className="font-mono">
+                                        {d.old ?? "—"} → {d.new ?? "—"}
+                                      </span>
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                             </div>
-                          )}
-                        </div>
 
-                        {actionable && c.status !== "applied" && (
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {c.status !== "approved" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={busyId === c.change_id || !addReady}
-                                onClick={() => review(c, "approved")}
-                                title={
-                                  isAdded && !addReady
-                                    ? "Pick a university, enter a name, tick at least one eligible stream, and write the subject rule first"
-                                    : undefined
-                                }
-                              >
-                                <Check className="mr-1 h-3.5 w-3.5" aria-hidden /> Approve
-                              </Button>
-                            )}
-                            {c.status !== "rejected" && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={busyId === c.change_id}
-                                onClick={() => review(c, "rejected")}
-                              >
-                                <X className="mr-1 h-3.5 w-3.5" aria-hidden /> Reject
-                              </Button>
+                            {actionable && c.status !== "applied" && (
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {c.status !== "approved" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={busyId === c.change_id}
+                                    onClick={() => review(c, "approved")}
+                                  >
+                                    <Check className="mr-1 h-3.5 w-3.5" aria-hidden /> Approve
+                                  </Button>
+                                )}
+                                {c.status !== "rejected" && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={busyId === c.change_id}
+                                    onClick={() => review(c, "rejected")}
+                                  >
+                                    <X className="mr-1 h-3.5 w-3.5" aria-hidden /> Reject
+                                  </Button>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                        </div>
+                      );
+                    })}
               </div>
             </div>
           );

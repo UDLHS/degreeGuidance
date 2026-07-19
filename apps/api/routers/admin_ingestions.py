@@ -79,6 +79,7 @@ from core.ingestion.column_mapper import normalize_label
 from core.ingestion.course_details import details_from_artifact
 from core.ingestion.grid_extractor import DISTRICTS_ORDER, parse_pages_spec
 from core.ingestion.handbook_diff import compute_handbook_diff, record_changes
+from core.ingestion.rule_suggest import suggest_subject_rule
 from core.ingestion.stream_tags import resolve_group_streams, suggest_stream_codes
 from core.ingestion.unicode_section import split_label
 from core.models.auth import User
@@ -1107,6 +1108,16 @@ async def _book_prefill(
         if suggested:
             out.setdefault(code.strip().upper(), {})["suggested_stream_codes"] = sorted(suggested)
 
+    # For the deterministic rule suggestion (9.6b) — a suggested subject name
+    # that matches no catalog subject would match no STUDENT either, so an
+    # unvalidatable suggestion is dropped here, never shown.
+    known_subjects = {
+        r.name_en for r in (await db.execute(text("SELECT name_en FROM subjects"))).all()
+    }
+    known_streams = {
+        r.code for r in (await db.execute(text("SELECT code FROM streams"))).all()
+    }
+
     # Section 2.2 last: it is the book STATING the rule, so it overrides the
     # bracket-tag hint above. Keyed by course number (019A -> 019), because the
     # book documents a course once and the Uni-Code adds the university.
@@ -1116,6 +1127,17 @@ async def _book_prefill(
         if not cd:
             continue
         detail = out.setdefault(code, {})
+        # 9.6b — a rule SUGGESTION read from the book's own sentence, only when
+        # the whole sentence parses into one unconditional route (see
+        # core/ingestion/rule_suggest.py). The admin reviews it in the editable
+        # rule box against the prose shown beside it; the D6 gate re-validates
+        # at approve. No parse -> no suggestion -> the box stays empty.
+        if cd.get("requirements_text"):
+            suggestion = suggest_subject_rule(cd["requirements_text"])
+            if suggestion is not None and not validate_subject_rule(
+                suggestion, known_subjects=known_subjects, known_streams=known_streams
+            ):
+                detail["suggested_subject_rule"] = suggestion
         if cd.get("stream_codes"):
             detail["suggested_stream_codes"] = sorted(cd["stream_codes"])
         if cd.get("streams_may_be_incomplete"):
