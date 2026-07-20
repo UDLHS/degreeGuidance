@@ -37,6 +37,8 @@ export type ScoredRecommendation = {
   status: "eligible" | "conditional";
   is_marginal: boolean;
   available_mediums: string[];
+  /** from the handbook via the catalog; null when the book doesn't print one */
+  duration_years: number | null;
   eligible_stream_codes: string[];
   total_score: number;
   bucket: "safe" | "ambitious" | "consider";

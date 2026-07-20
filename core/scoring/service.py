@@ -471,6 +471,7 @@ async def recommend(session: AsyncSession, req: RecommendationRequest) -> Recomm
             status=it.status,
             is_marginal=it.is_marginal,
             available_mediums=it.available_mediums,
+            duration_years=it.duration_years,
             eligible_stream_codes=sorted(streams_by_code.get(it.course_code, [])),
             total_score=s.total_score,
             bucket=s.bucket,

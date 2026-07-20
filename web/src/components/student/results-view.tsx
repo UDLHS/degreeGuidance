@@ -42,6 +42,14 @@ const STREAM_SHORT: Record<string, string> = {
   BIOSYSTEMS_TECH: "Biosystems Tech",
 };
 
+// Medium of instruction, read from the UGC handbook. Shown only when the
+// catalog has it — an absent medium renders nothing, never a guess.
+const MEDIUM_LABEL: Record<string, string> = {
+  EN: "English",
+  SI: "Sinhala",
+  TA: "Tamil",
+};
+
 const DIMENSION_LABEL: Record<string, string> = {
   z_margin: "Z-score margin",
   university: "University preference",
@@ -516,17 +524,37 @@ function CourseCard({
             {d.course_name}
           </h3>
           <div className="text-[15px] font-medium" style={{ color: "var(--dg-muted)" }}>{d.university_name}</div>
-          {d.eligible_stream_codes.length > 1 ? (
+          {d.eligible_stream_codes.length > 1 ||
+          d.duration_years ||
+          (d.available_mediums?.length ?? 0) > 0 ? (
             <div className="mt-[9px] flex flex-wrap gap-[6px]">
-              {d.eligible_stream_codes.map((code) => (
+              {d.eligible_stream_codes.length > 1
+                ? d.eligible_stream_codes.map((code) => (
+                    <span
+                      key={code}
+                      className="inline-block rounded-full px-[10px] py-[3px] text-[11.5px] font-semibold"
+                      style={{ border: "1px solid var(--dg-border)", color: "var(--dg-muted)" }}
+                    >
+                      {STREAM_SHORT[code] ?? code}
+                    </span>
+                  ))
+                : null}
+              {d.duration_years ? (
                 <span
-                  key={code}
                   className="inline-block rounded-full px-[10px] py-[3px] text-[11.5px] font-semibold"
                   style={{ border: "1px solid var(--dg-border)", color: "var(--dg-muted)" }}
                 >
-                  {STREAM_SHORT[code] ?? code}
+                  {d.duration_years} years
                 </span>
-              ))}
+              ) : null}
+              {(d.available_mediums?.length ?? 0) > 0 ? (
+                <span
+                  className="inline-block rounded-full px-[10px] py-[3px] text-[11.5px] font-semibold"
+                  style={{ border: "1px solid var(--dg-border)", color: "var(--dg-muted)" }}
+                >
+                  {d.available_mediums.map((m) => MEDIUM_LABEL[m] ?? m).join(" / ")} medium
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>

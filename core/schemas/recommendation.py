@@ -45,6 +45,8 @@ class ScoredRecommendation(BaseModel):
     status: str  # eligible | conditional
     is_marginal: bool
     available_mediums: list[str]
+    #: from the handbook via the catalog; None when the book doesn't print one
+    duration_years: float | None = None
     eligible_stream_codes: list[str] = Field(
         default_factory=list,
         description="Stream codes (e.g. BIO_SCIENCE) that are eligible for this course.",
