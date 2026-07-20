@@ -1,4 +1,4 @@
-"""Apply pending schema migrations (36→42) to the PRODUCTION Supabase DB.
+"""Apply pending schema migrations (36→44) to the PRODUCTION Supabase DB.
 
 W2 of docs/PHASE2_STUDENT_ADMIN_PLAN.md, using the project's established
 standalone-script method (Alembic-direct has SSL friction against Supabase;
@@ -43,6 +43,9 @@ CHAIN: list[tuple[str, str, str]] = [
     ("e75434db887c", "093c47d4fb58", "41_e75434db887c_factsheets_ddl.sql"),
     ("7fa2c4d81b3e", "e75434db887c", "42_7fa2c4d81b3e_ingestion_artifacts.sql"),
     ("c5d8e2f91a47", "7fa2c4d81b3e", "43_c5d8e2f91a47_articles.sql"),
+    # 44 (Phase 9.4): factsheet_drafts — machine-written factsheet drafts,
+    # structurally unreachable by the RAG indexer until an admin approves.
+    ("a271bf70558e", "c5d8e2f91a47", "44_a271bf70558e_factsheet_drafts.sql"),
 ]
 
 FACTSHEETS_DIR = Path(__file__).resolve().parent.parent / "content" / "factsheets"
@@ -98,7 +101,7 @@ async def main(dry_run: bool) -> int:
             start = 0
         else:
             print(
-                f"ERROR: unexpected prod version {current!r} — not in the 35→42 chain. "
+                f"ERROR: unexpected prod version {current!r} — not in the 35→44 chain. "
                 "Investigate before applying anything."
             )
             return 2
@@ -133,6 +136,7 @@ async def main(dry_run: bool) -> int:
             "factsheets",
             "ingestion_artifacts",
             "articles",
+            "factsheet_drafts",
         ):
             n = await conn.fetchval(
                 "SELECT count(*) FROM information_schema.tables WHERE table_name = $1", tbl
